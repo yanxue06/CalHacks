@@ -3,6 +3,11 @@ import { Node, Edge, Graph, NodeInput, NodeImportance } from '../types';
 
 export class GraphService {
     private graph: Graph;
+    private transcriptHistory: Array<{
+        speaker: string;
+        text: string;
+        timestamp: string;
+    }> = [];
 
     constructor() {
         this.graph = {
@@ -13,6 +18,45 @@ export class GraphService {
 
     getGraph(): Graph {
         return this.graph;
+    }
+
+    /**
+     * Add a transcript entry with speaker information
+     */
+    addTranscript(speaker: string, text: string): void {
+        const transcript = {
+            speaker,
+            text,
+            timestamp: new Date().toISOString()
+        };
+        this.transcriptHistory.push(transcript);
+        
+        // Keep only last 30 seconds of transcripts
+        const thirtySecondsAgo = Date.now() - 30000;
+        this.transcriptHistory = this.transcriptHistory.filter(
+            t => new Date(t.timestamp).getTime() > thirtySecondsAgo
+        );
+    }
+
+    /**
+     * Get recent transcripts within a time window
+     */
+    getRecentTranscripts(durationMs: number = 15000): Array<{
+        speaker: string;
+        text: string;
+        timestamp: string;
+    }> {
+        const cutoff = Date.now() - durationMs;
+        return this.transcriptHistory.filter(
+            t => new Date(t.timestamp).getTime() > cutoff
+        );
+    }
+
+    /**
+     * Get all transcripts
+     */
+    getAllTranscripts(): Array<{ speaker: string; text: string; timestamp: string; }> {
+        return [...this.transcriptHistory];
     }
 
     /**

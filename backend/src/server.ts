@@ -193,11 +193,18 @@ app.post('/api/vapi/webhook', (req: Request, res: Response) => {
         // Handle different Vapi events
         switch (event.type) {
             case 'transcript':
-                // Real-time transcript
-                io.emit('transcript:update', {
-                    text: event.transcript,
-                    timestamp: new Date().toISOString()
-                });
+                // Store transcript with speaker information
+                if (event.transcript) {
+                    const speaker = event.speaker || 'unknown';
+                    graphService.addTranscript(speaker, event.transcript);
+                    
+                    // Broadcast to clients with speaker info
+                    io.emit('transcript:update', {
+                        text: event.transcript,
+                        speaker: speaker,
+                        timestamp: new Date().toISOString()
+                    });
+                }
                 break;
             
             case 'conversation-start':
@@ -223,6 +230,45 @@ app.post('/api/vapi/webhook', (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error handling Vapi webhook:', error);
         res.status(500).json({ error: 'Failed to process webhook' });
+    }
+});
+
+// ==================== AI SUMMARY ENDPOINT ====================
+
+// Generate AI summary for a node
+app.post('/api/node/summary', async (req: Request, res: Response) => {
+    try {
+        const { nodeId, contextWindow } = req.body;
+        
+        const node = graphService.getGraph().nodes.find(n => n.id === nodeId);
+        if (!node) {
+            res.status(404).json({ error: 'Node not found' });
+            return;
+        }
+        
+        // Get recent transcripts for context
+        const transcripts = graphService.getRecentTranscripts(contextWindow || 15000);
+        const transcriptsText = transcripts.map(t => `[${t.speaker}]: ${t.text}`).join('\n');
+        
+        // Use OpenRouter to generate summary
+        const summaryPrompt = `Given this conversation context from the last ${Math.floor((contextWindow || 15000) / 1000)} seconds:
+
+${transcriptsText}
+
+Please provide a brief 2-3 sentence summary of what was discussed about: "${node.data.label}"
+
+Be specific and focus on the key points related to this topic.`;
+
+        const summary = await openRouterService.chat(summaryPrompt, 'google/gemini-pro');
+        
+        res.json({ 
+            summary,
+            nodeId,
+            contextWindow: contextWindow || 15000
+        });
+    } catch (error) {
+        console.error('Error generating summary:', error);
+        res.status(500).json({ error: 'Failed to generate summary' });
     }
 });
 
