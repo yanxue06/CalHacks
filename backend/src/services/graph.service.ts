@@ -287,35 +287,6 @@ export class GraphService {
         };
     }
 
-    removeNode(nodeId: string): boolean {
-        const index = this.graph.nodes.findIndex(n => n.id === nodeId);
-        if (index === -1) return false;
-
-        this.graph.nodes.splice(index, 1);
-        // Remove associated edges
-        this.graph.edges = this.graph.edges.filter(
-            e => e.source !== nodeId && e.target !== nodeId
-        );
-        return true;
-    }
-
-    /**
-     * Update a node's properties
-     */
-    updateNode(nodeId: string, updates: Partial<Node>): Node | null {
-        const node = this.graph.nodes.find(n => n.id === nodeId);
-        if (!node) return null;
-
-        // Deep merge for nested data object
-        if (updates.data) {
-            node.data = { ...node.data, ...updates.data };
-            delete updates.data;
-        }
-
-        Object.assign(node, updates);
-        return node;
-    }
-
     /**
      * Merge multiple nodes into a single larger node
      * This represents when multiple small thoughts combine into an agreed-upon idea
