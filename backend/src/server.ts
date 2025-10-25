@@ -13,7 +13,7 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 1;
 
 // Initialize services
 const openRouterService = new OpenRouterService();
@@ -23,8 +23,13 @@ const vapiService = new VapiService();
 // Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
     cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-        methods: ['GET', 'POST']
+        origin: [
+            process.env.FRONTEND_URL || 'http://localhost:3000',
+            'http://localhost:8082',
+            'https://api.vapi.ai'
+        ],
+        methods: ['GET', 'POST'],
+        credentials: true
     }
 });
 
@@ -46,7 +51,14 @@ io.on('connection', (socket) => {
 
 // Middleware
 app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(cors({
+    origin: [
+        process.env.FRONTEND_URL || 'http://localhost:3000',
+        'http://localhost:8082',
+        'https://api.vapi.ai'
+    ],
+    credentials: true
+})); // Enable CORS
 app.use(morgan('combined')); // Logging
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
@@ -81,6 +93,102 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction): P
 
         const response = await openRouterService.chat(message, model);
         res.json({ response });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Process text through Gemini and generate graph (for testing without Vapi)
+app.post('/api/process-text', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { text } = req.body;
+
+        if (!text) {
+            res.status(400).json({ error: 'Text is required' });
+            return;
+        }
+
+        console.log('📝 Processing text:', text);
+
+        // Create a prompt for Gemini to extract nodes and edges
+        const prompt = `You are analyzing a conversation and extracting structured information.
+
+Conversation: "${text}"
+
+Extract key nodes (topics, decisions, actions, systems) and relationships from this conversation.
+Return a JSON object with this structure:
+{
+  "nodes": [
+    {"label": "Node name", "type": "Decision|Action|System|Input|Output"}
+  ],
+  "edges": [
+    {"source": "Source node label", "target": "Target node label", "label": "relationship"}
+  ]
+}
+
+Node types:
+- Decision: A decision point or choice made
+- Action: A task or action to be taken
+- System: A service, database, or system component
+- Input: Starting point or initial topic
+- Output: Result or outcome
+
+Return ONLY valid JSON, no other text.`;
+
+        const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
+        
+        console.log('🤖 Gemini response:', response);
+
+        // Parse the JSON response
+        let graphData;
+        try {
+            // Try to extract JSON from the response
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                graphData = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('No JSON found in response');
+            }
+        } catch (parseError) {
+            console.error('Failed to parse Gemini response:', parseError);
+            res.status(500).json({ error: 'Failed to parse AI response', details: response });
+            return;
+        }
+
+        // Add nodes and edges to the graph
+        const { nodes = [], edges = [] } = graphData;
+        const nodeIdMap: Record<string, string> = {};
+
+        // Add nodes
+        const addedNodes = nodes.map((node: any) => {
+            const newNode = graphService.addNode({
+                label: node.label,
+                category: node.type || 'System',
+                metadata: { source: 'manual-text' }
+            });
+            nodeIdMap[node.label] = newNode.id;
+            return newNode;
+        });
+
+        // Add edges
+        const addedEdges = edges.map((edge: any) => {
+            const sourceId = nodeIdMap[edge.source] || edge.source;
+            const targetId = nodeIdMap[edge.target] || edge.target;
+            return graphService.addEdge(sourceId, targetId, edge.label);
+        });
+
+        // Broadcast to all connected clients
+        io.emit('graph:update', graphService.getGraph());
+        io.emit('graph:nodeAdded', { nodes: addedNodes, edges: addedEdges });
+
+        console.log(`✅ Added ${addedNodes.length} nodes and ${addedEdges.length} edges`);
+
+        res.json({
+            success: true,
+            nodes: addedNodes,
+            edges: addedEdges,
+            geminiResponse: response
+        });
     } catch (error) {
         next(error);
     }

@@ -145,7 +145,7 @@ export class GraphService {
      */
     addEdge(source: string, target: string, label?: string, type?: string, animated?: boolean): Edge {
         const newEdge: Edge = {
-            id: `e-${source}-${target}`,
+            id: `e-${source}-${target}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             source,
             target,
             label,

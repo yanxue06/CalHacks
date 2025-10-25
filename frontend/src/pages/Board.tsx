@@ -18,7 +18,8 @@ import { DiagramNode as CustomNode } from '@/components/DiagramNode';
 import { Toolbar } from '@/components/Toolbar';
 import { StatusBanner } from '@/components/StatusBanner';
 import { DetailsSidebar } from '@/components/DetailsSidebar';
-import { MockWebSocketService } from '@/services/mockWebSocket';
+import { WebSocketService } from '@/services/websocket.service';
+import { VapiService } from '@/services/vapi.service';
 import { DiagramNode, DiagramEdge, Decision, ActionItem, RecordingStatus } from '@/types/diagram';
 import { toast } from 'sonner';
 import { toPng } from 'html-to-image';
@@ -37,7 +38,8 @@ const Board = () => {
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   
-  const wsService = useRef(new MockWebSocketService());
+  const wsService = useRef(new WebSocketService());
+  const vapiService = useRef(new VapiService());
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -80,36 +82,75 @@ const Board = () => {
           }
         };
         
-        setEdges((eds) => [...eds, flowEdge]);
-      },
-      onFinalize: ({ decisions: newDecisions, actionItems: newActionItems }) => {
-        setDecisions(newDecisions);
-        setActionItems(newActionItems);
-        setStatus('idle');
-        toast.success('Recording finalized', {
-          description: `Found ${newDecisions.length} decisions and ${newActionItems.length} action items`
+        setEdges((eds) => {
+          // Check if edge already exists to prevent duplicates
+          const exists = eds.some(e => e.id === flowEdge.id);
+          if (exists) return eds;
+          return [...eds, flowEdge];
         });
+      },
+      onTranscript: (data) => {
+        console.log('📝 Transcript:', data);
+        // Could show this in the UI if desired
+      },
+      onConversationStarted: () => {
+        setStatus('listening');
+        toast.info('Listening...', {
+          description: 'Vapi is now transcribing your audio'
+        });
+      },
+      onConversationEnded: () => {
+        setStatus('finalizing');
+        setTimeout(() => {
+          setStatus('idle');
+          toast.success('Recording complete', {
+            description: 'Your conversation has been processed'
+          });
+        }, 1000);
       }
     });
 
     return () => {
       wsService.current.disconnect();
+      vapiService.current.cleanup();
     };
   }, [setNodes, setEdges, reactFlowInstance]);
 
-  const handleStartRecording = useCallback(() => {
-    setStatus('listening');
-    setDecisions([]);
-    setActionItems([]);
-    wsService.current.startRecording();
-    toast.info('Started recording', {
-      description: 'Listening to your conversation...'
-    });
+  const handleStartRecording = useCallback(async () => {
+    try {
+      setStatus('processing');
+      setDecisions([]);
+      setActionItems([]);
+      
+      await vapiService.current.startRecording();
+      
+      toast.success('Recording started', {
+        description: 'Speak naturally and Vapi will transcribe and analyze your conversation'
+      });
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setStatus('idle');
+      toast.error('Failed to start recording', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+    }
   }, []);
 
-  const handleStopRecording = useCallback(() => {
-    setStatus('finalizing');
-    wsService.current.stopRecording();
+  const handleStopRecording = useCallback(async () => {
+    try {
+      setStatus('finalizing');
+      await vapiService.current.stopRecording();
+      
+      toast.info('Processing...', {
+        description: 'Finalizing your conversation analysis'
+      });
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      toast.error('Error stopping recording', {
+        description: 'Recording may have already stopped'
+      });
+      setStatus('idle');
+    }
   }, []);
 
   const handleSave = useCallback(() => {
