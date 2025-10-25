@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
-import { Play, Square, Save, Download, Maximize2 } from 'lucide-react';
+import { Play, Square, Save, Download, Maximize2, Upload } from 'lucide-react';
 import { RecordingStatus } from '@/types/diagram';
+import { useRef } from 'react';
 
 interface ToolbarProps {
   status: RecordingStatus;
@@ -9,6 +10,7 @@ interface ToolbarProps {
   onSave: () => void;
   onExport: () => void;
   onRecenter: () => void;
+  onUploadAudio?: (file: File) => void;
 }
 
 export const Toolbar = ({
@@ -17,9 +19,22 @@ export const Toolbar = ({
   onStopRecording,
   onSave,
   onExport,
-  onRecenter
+  onRecenter,
+  onUploadAudio
 }: ToolbarProps) => {
   const isRecording = status === 'listening' || status === 'processing' || status === 'finalizing';
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && onUploadAudio) {
+      onUploadAudio(file);
+    }
+    // Reset the input so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
 
   return (
     <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-card">
@@ -46,6 +61,28 @@ export const Toolbar = ({
           </Button>
         )}
       </div>
+
+      {isRecording && onUploadAudio && (
+        <>
+          <div className="h-6 w-px bg-border mx-2" />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="audio/*"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            variant="outline"
+            size="sm"
+            className="gap-2"
+          >
+            <Upload className="w-4 h-4" />
+            Upload Audio
+          </Button>
+        </>
+      )}
 
       <div className="h-6 w-px bg-border mx-2" />
 

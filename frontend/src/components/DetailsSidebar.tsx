@@ -1,7 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { DiagramNode, DiagramEdge, Decision, ActionItem } from '@/types/diagram';
-import { Clock, User, MessageSquareQuote, CheckCircle2, Lightbulb } from 'lucide-react';
+import { Clock, User, MessageSquareQuote, CheckCircle2, Lightbulb, Mic } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
 interface DetailsSidebarProps {
@@ -9,6 +9,13 @@ interface DetailsSidebarProps {
   selectedEdge: DiagramEdge | null;
   decisions: Decision[];
   actionItems: ActionItem[];
+  transcriptions?: Array<{
+    id: string;
+    text: string;
+    timestamp: string;
+    confidence: number;
+    duration: number;
+  }>;
 }
 
 const formatTimestamp = (timestamp: number) => {
@@ -26,7 +33,8 @@ export const DetailsSidebar = ({
   selectedNode, 
   selectedEdge, 
   decisions, 
-  actionItems 
+  actionItems,
+  transcriptions = []
 }: DetailsSidebarProps) => {
   const hasSelection = selectedNode || selectedEdge;
   const sourceRefs = (selectedNode?.data.sourceRefs || selectedEdge?.data.sourceRefs || []);
@@ -40,6 +48,13 @@ export const DetailsSidebar = ({
             className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
           >
             Details
+          </TabsTrigger>
+          <TabsTrigger 
+            value="transcriptions"
+            className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+          >
+            <Mic className="w-4 h-4 mr-1" />
+            Voice
           </TabsTrigger>
           <TabsTrigger 
             value="next-steps"
@@ -97,6 +112,36 @@ export const DetailsSidebar = ({
                   </div>
                 </div>
               </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="transcriptions" className="m-0 p-4 space-y-4">
+            {transcriptions.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <Mic className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">No transcriptions yet</p>
+                <p className="text-xs mt-1">Upload audio files to see transcriptions here</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <Mic className="w-4 h-4" />
+                  Voice Transcriptions ({transcriptions.length})
+                </h4>
+                {transcriptions.map((transcription) => (
+                  <Card key={transcription.id} className="p-3 space-y-2">
+                    <p className="text-sm">{transcription.text}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Clock className="w-3 h-3" />
+                      <span>{new Date(transcription.timestamp).toLocaleTimeString()}</span>
+                      <span>•</span>
+                      <span>{transcription.duration.toFixed(1)}s</span>
+                      <span>•</span>
+                      <span>Confidence: {Math.round(transcription.confidence * 100)}%</span>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             )}
           </TabsContent>
 
