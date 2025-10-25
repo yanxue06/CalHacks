@@ -5,7 +5,8 @@ export class VapiService {
   private publicKey: string;
   private backendUrl: string;
   private isActive: boolean = false;
-  private isDevelopment: boolean = true; // Set to true for localhost development
+  private isDevelopment: boolean = false; // Set to false to use real Vapi
+  private onTranscriptCallback: ((text: string) => void) | null = null;
 
   constructor() {
     this.publicKey = import.meta.env.VITE_VAPI_PUBLIC_KEY || '';
@@ -14,6 +15,10 @@ export class VapiService {
     if (!this.publicKey) {
       console.warn('⚠️ VITE_VAPI_PUBLIC_KEY not found. Please add it to your .env file');
     }
+  }
+
+  setTranscriptCallback(callback: (text: string) => void) {
+    this.onTranscriptCallback = callback;
   }
 
   async initialize() {
@@ -59,6 +64,10 @@ export class VapiService {
       // Handle different message types
       if (message.type === 'transcript') {
         console.log('📝 Transcript:', message.transcript);
+        // Only process FINAL USER transcripts (not assistant responses, not partial)
+        if (message.role === 'user' && message.transcriptType === 'final') {
+          this.processTranscript(message.transcript);
+        }
       } else if (message.type === 'function-call') {
         console.log('🔧 Function call:', message);
       }
@@ -99,32 +108,27 @@ export class VapiService {
     }
 
     try {
-      // Get the assistant configuration from backend
-      const response = await fetch(`${this.backendUrl}/api/vapi/config`);
-      const assistantConfig = await response.json();
+      // Start Vapi with minimal configuration for transcription
+      const vapiConfig = {
+        transcriber: {
+          provider: 'deepgram' as const,
+          model: 'nova-2',
+          language: 'en'
+        }
+      };
 
-      console.log('🚀 Starting Vapi call with assistant config:', assistantConfig);
-
-      // Try starting with minimal config first
-      await this.vapi.start({
-        assistantId: null, // Let Vapi handle this
-        serverUrl: `${this.backendUrl}/api/vapi/function-call`
-      });
+      console.log('🚀 Starting Vapi recording...');
+      await this.vapi.start(vapiConfig);
 
       console.log('✅ Vapi recording started');
     } catch (error) {
       console.error('Failed to start Vapi recording:', error);
       
-      // If Vapi fails due to CORS, fall back to development mode
-      if (error.message?.includes('cors') || error.type === 'cors') {
-        console.warn('⚠️ Vapi CORS error - falling back to development mode');
-        this.isDevelopment = true;
-        this.isActive = true;
-        console.log('✅ Vapi recording started (development mode)');
-        return;
-      }
-      
-      throw error;
+      // If Vapi fails due to CORS or other issues, fall back to development mode
+      console.warn('⚠️ Vapi error - falling back to development mode');
+      this.isDevelopment = true;
+      this.isActive = true;
+      console.log('✅ Vapi recording started (development mode)');
     }
   }
 
@@ -157,6 +161,29 @@ export class VapiService {
 
   isRecording(): boolean {
     return this.isActive;
+  }
+
+  private async processTranscript(transcript: string) {
+    try {
+      console.log('🔄 Processing transcript:', transcript);
+      
+      // Only process substantial transcripts (at least 20 characters, multiple words)
+      const wordCount = transcript.trim().split(/\s+/).length;
+      if (transcript.length < 20 || wordCount < 4) {
+        console.log('⏭️ Skipping short transcript (need at least 4 words):', transcript);
+        return;
+      }
+      
+      // Use callback to send transcript to Board component, which will use WebSocket
+      if (this.onTranscriptCallback) {
+        console.log('📤 Sending substantial transcript via callback');
+        this.onTranscriptCallback(transcript);
+      } else {
+        console.warn('⚠️ No transcript callback set');
+      }
+    } catch (error) {
+      console.error('❌ Error processing transcript:', error);
+    }
   }
 
   cleanup() {

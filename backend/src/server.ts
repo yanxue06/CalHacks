@@ -47,6 +47,90 @@ io.on('connection', (socket) => {
     socket.on('graph:request', () => {
         socket.emit('graph:update', graphService.getGraph());
     });
+
+    socket.on('process-transcript', async (data: { text: string }) => {
+        try {
+            console.log('📝 Received transcript via WebSocket:', data.text);
+            
+            const prompt = `Extract structured information from this conversation text and create a diagram representation.
+
+Text: "${data.text}"
+
+Extract:
+1. Entities (people, systems, services, databases, etc.)
+2. Actions or relationships between entities
+
+Return ONLY valid JSON in this exact format (no markdown, no code blocks):
+{
+  "nodes": [
+    {"id": "unique-id", "label": "Node Name", "category": "person|service|database|decision|action"}
+  ],
+  "edges": [
+    {"source": "node-id-1", "target": "node-id-2", "relationship": "description"}
+  ]
+}`;
+
+            const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
+            console.log('🤖 Gemini response:', response);
+
+            // Parse JSON response
+            let jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('❌ No JSON found in response');
+                socket.emit('error', { message: 'Failed to parse AI response' });
+                return;
+            }
+
+            const parsedData = JSON.parse(jsonMatch[0]);
+            console.log('✅ Parsed data:', parsedData);
+
+            // Add nodes and edges to graph
+            const addedNodes: any[] = [];
+            const addedEdges: any[] = [];
+
+            if (parsedData.nodes && Array.isArray(parsedData.nodes)) {
+                for (const node of parsedData.nodes) {
+                    const nodeId = graphService.addNode({
+                        id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        label: node.label,
+                        category: node.category || 'service'
+                    });
+                    addedNodes.push({ id: nodeId, label: node.label });
+                }
+            }
+
+            if (parsedData.edges && Array.isArray(parsedData.edges)) {
+                for (const edge of parsedData.edges) {
+                    const edgeId = graphService.addEdge({
+                        source: edge.source,
+                        target: edge.target,
+                        relationship: edge.relationship || 'relatesTo'
+                    });
+                    addedEdges.push({ id: edgeId, ...edge });
+                }
+            }
+
+            // Broadcast graph update to all clients
+            io.emit('graph:update', graphService.getGraph());
+
+            console.log(`✅ Added ${addedNodes.length} nodes and ${addedEdges.length} edges`);
+            socket.emit('transcript-processed', {
+                success: true,
+                nodes: addedNodes,
+                edges: addedEdges
+            });
+        } catch (error) {
+            console.error('❌ Error processing transcript:', error);
+            socket.emit('error', { message: 'Failed to process transcript' });
+        }
+    });
+
+    socket.on('clear-graph', () => {
+        console.log('🗑️ Clearing graph via WebSocket');
+        graphService.clear();
+        io.emit('graph:update', graphService.getGraph());
+        console.log('✅ Graph cleared');
+    });
 });
 
 // Middleware

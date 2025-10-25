@@ -41,8 +41,39 @@ const Board = () => {
   const wsService = useRef(new WebSocketService());
   const vapiService = useRef(new VapiService());
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const lastProcessedTime = useRef<number>(0);
+  const MIN_PROCESS_INTERVAL = 5000; // 5 seconds between processing
+
+  const handleTranscript = useCallback((transcript: string) => {
+    console.log('📝 Received transcript from Vapi:', transcript);
+    
+    // Rate limiting: prevent processing too frequently
+    const now = Date.now();
+    const timeSinceLastProcess = now - lastProcessedTime.current;
+    
+    if (timeSinceLastProcess < MIN_PROCESS_INTERVAL) {
+      console.log(`⏱️ Rate limited: waiting ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s before next process`);
+      toast.warning('Please wait', {
+        description: `Wait ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s between requests`
+      });
+      return;
+    }
+    
+    // Update last processed time
+    lastProcessedTime.current = now;
+    
+    // Send transcript to backend via WebSocket
+    wsService.current.sendTranscript(transcript);
+    
+    toast.info('Processing speech...', {
+      description: 'Generating diagram nodes'
+    });
+  }, []);
 
   useEffect(() => {
+    // Set transcript callback for Vapi
+    vapiService.current.setTranscriptCallback(handleTranscript);
+
     wsService.current.connect({
       onNode: (node: DiagramNode) => {
         const flowNode: Node = {
@@ -114,7 +145,7 @@ const Board = () => {
       wsService.current.disconnect();
       vapiService.current.cleanup();
     };
-  }, [setNodes, setEdges, reactFlowInstance]);
+  }, [setNodes, setEdges, reactFlowInstance, handleTranscript]);
 
   const handleStartRecording = useCallback(async () => {
     try {
@@ -189,6 +220,15 @@ const Board = () => {
     toast.info('View recentered');
   }, [reactFlowInstance]);
 
+  const handleClear = useCallback(() => {
+    wsService.current.clearGraph();
+    setNodes([]);
+    setEdges([]);
+    toast.success('Graph cleared', {
+      description: 'All nodes and edges removed'
+    });
+  }, [setNodes, setEdges]);
+
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     const diagramNode: DiagramNode = {
       id: node.id,
@@ -245,6 +285,7 @@ const Board = () => {
         onSave={handleSave}
         onExport={handleExport}
         onRecenter={handleRecenter}
+        onClear={handleClear}
       />
       
       <StatusBanner status={status} />

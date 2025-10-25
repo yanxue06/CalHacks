@@ -41,6 +41,14 @@ export class WebSocketService {
       console.error('WebSocket connection error:', error);
     });
 
+    this.socket.on('transcript-processed', (data: { success: boolean; nodes: any[]; edges: any[] }) => {
+      console.log('✅ Transcript processed successfully:', data);
+    });
+
+    this.socket.on('error', (error: { message: string }) => {
+      console.error('❌ WebSocket error:', error.message);
+    });
+
     // Listen for graph updates
     this.socket.on('graph:update', (graph: { nodes: any[]; edges: any[] }) => {
       console.log('📊 Received graph update:', graph);
@@ -146,6 +154,24 @@ export class WebSocketService {
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;
+    }
+  }
+
+  sendTranscript(text: string) {
+    if (this.socket) {
+      console.log('📤 Sending transcript via WebSocket:', text);
+      this.socket.emit('process-transcript', { text });
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
+  clearGraph() {
+    if (this.socket) {
+      console.log('🗑️ Clearing graph via WebSocket');
+      this.socket.emit('clear-graph');
+    } else {
+      console.error('❌ WebSocket not connected');
     }
   }
 
