@@ -8,6 +8,8 @@ import { Server as SocketIOServer } from 'socket.io';
 import { OpenRouterService } from './services/openrouter.service';
 import { GraphService } from './services/graph.service';
 import { VapiService } from './services/vapi.service';
+import { StorageService } from './services/storage.service';
+import multer from 'multer';
 
 dotenv.config();
 
@@ -19,6 +21,23 @@ const PORT = process.env.PORT || 5000;
 const openRouterService = new OpenRouterService();
 const graphService = new GraphService();
 const vapiService = new VapiService();
+const storageService = new StorageService();
+
+// Configure multer for audio file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept audio files
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'));
+    }
+  }
+});
 
 // Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
@@ -231,6 +250,104 @@ app.post('/api/vapi/webhook', (req: Request, res: Response) => {
         console.error('Error handling Vapi webhook:', error);
         res.status(500).json({ error: 'Failed to process webhook' });
     }
+});
+
+// ==================== VOICE RECORDING ENDPOINTS ====================
+
+// Start a new recording session
+app.post('/api/voice/session/start', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sessionId = await storageService.createSession();
+    res.json({ 
+      sessionId,
+      message: 'Recording session started',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// End a recording session
+app.post('/api/voice/session/:sessionId/end', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { sessionId } = req.params;
+    await storageService.updateSessionStatus(sessionId, 'completed', new Date().toISOString());
+    
+    const session = await storageService.getSession(sessionId);
+    res.json({ 
+      session,
+      message: 'Recording session ended'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Upload audio file and transcribe
+app.post('/api/voice/transcribe', upload.single('audio'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ error: 'No audio file provided' });
+      return;
+    }
+
+    const { sessionId } = req.body;
+    if (!sessionId) {
+      res.status(400).json({ error: 'Session ID is required' });
+      return;
+    }
+
+    // Transcribe audio using Vapi
+    const transcription = await vapiService.transcribeAudio(req.file.buffer, req.file.originalname);
+    
+    // Store transcription
+    const storedTranscription = await storageService.addTranscription(sessionId, {
+      text: transcription.text,
+      confidence: transcription.confidence,
+      language: transcription.language,
+      duration: transcription.duration,
+      timestamp: transcription.timestamp,
+      audioFileName: req.file.originalname
+    });
+
+    // Broadcast to connected clients
+    io.emit('transcription:new', storedTranscription);
+
+    res.json({
+      transcription: storedTranscription,
+      message: 'Audio transcribed successfully'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get session data
+app.get('/api/voice/session/:sessionId', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await storageService.getSession(sessionId);
+    
+    if (!session) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+    
+    res.json({ session });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get all sessions
+app.get('/api/voice/sessions', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sessions = await storageService.getAllSessions();
+    res.json({ sessions });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // ==================== AI SUMMARY ENDPOINT ====================
