@@ -50,25 +50,64 @@ io.on('connection', (socket) => {
 
     socket.on('process-transcript', async (data: { text: string }) => {
         try {
-            console.log('📝 Received transcript via WebSocket:', data.text);
+            console.log('📝 Received conversation via WebSocket:', data.text);
             
-            const prompt = `Extract structured information from this conversation text and create a diagram representation.
+            const prompt = `You are building a HIERARCHICAL knowledge graph. Extract 3-5 KEY IDEAS ONLY from this conversation.
 
-Text: "${data.text}"
+CONVERSATION:
+${data.text}
 
-Extract:
-1. Entities (people, systems, services, databases, etc.)
-2. Actions or relationships between entities
+STRICT RULES:
+1. Extract ONLY 3-5 MAIN IDEAS (not every statement)
+2. NO REDUNDANCY - if two ideas are semantically similar, pick the most specific one
+3. Each node must be UNIQUE and NON-OVERLAPPING
+4. Create a HIERARCHY - parent concepts branch to child details
+5. Be EXTREMELY SPECIFIC with details (when, how, why, what)
 
-Return ONLY valid JSON in this exact format (no markdown, no code blocks):
+EXAMPLES:
+❌ BAD (redundant):
+- "User struggles with math"
+- "User has difficulty with addition"
+- "User finds addition challenging"
+→ These are all the same! Pick ONE: "User struggles to understand addition process"
+
+✅ GOOD (hierarchical, non-redundant):
+- "User struggles to understand addition process" (PARENT)
+  ├─ "Break down addition into step-by-step visual examples" (CHILD - solution)
+  └─ "Use physical objects like blocks to demonstrate combining quantities" (CHILD - implementation)
+
+WHAT TO EXTRACT:
+- Main problem/topic (1 node)
+- Key solutions or approaches (1-2 nodes)
+- Specific implementation details (1-2 nodes)
+
+WHAT TO SKIP:
+- Repetitive statements
+- Semantically duplicate ideas
+- Vague generalizations
+- Filler conversation
+
+EDGES - Create DIRECTED HIERARCHY:
+- Parent → Child (main idea branches to details)
+- Problem → Solution
+- Solution → Implementation
+- Concept → Example
+
+Return ONLY valid JSON (no markdown):
 {
   "nodes": [
-    {"id": "unique-id", "label": "Node Name", "category": "person|service|database|decision|action"}
+    {"id": "main-topic", "label": "Main idea with full context", "category": "problem|solution|technology|plan|action"}
   ],
   "edges": [
-    {"source": "node-id-1", "target": "node-id-2", "relationship": "description"}
+    {"source": "parent-id", "target": "child-id", "relationship": "branches to|solves|implements|exemplifies"}
   ]
-}`;
+}
+
+REMEMBER: 
+- MAXIMUM 5 nodes
+- NO semantic duplicates
+- CREATE hierarchy with directed edges
+- Each node should be a DISTINCT concept`;
 
             const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
             console.log('🤖 Gemini response:', response);
@@ -84,12 +123,36 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
             const parsedData = JSON.parse(jsonMatch[0]);
             console.log('✅ Parsed data:', parsedData);
 
-            // Add nodes and edges to graph
+            // Add nodes and edges to graph (with deduplication check)
             const addedNodes: any[] = [];
             const addedEdges: any[] = [];
+            const currentGraph = graphService.getGraph();
 
             if (parsedData.nodes && Array.isArray(parsedData.nodes)) {
                 for (const node of parsedData.nodes) {
+                    // Check if a similar node already exists (simple label similarity check)
+                    const isDuplicate = currentGraph.nodes.some(existingNode => {
+                        const existingLabel = existingNode.data.label.toLowerCase();
+                        const newLabel = node.label.toLowerCase();
+                        
+                        // Check for exact match or high similarity
+                        if (existingLabel === newLabel) return true;
+                        
+                        // Check if one label contains most words from the other (semantic similarity)
+                        const existingWords = existingLabel.split(/\s+/).filter(w => w.length > 3);
+                        const newWords = newLabel.split(/\s+/).filter(w => w.length > 3);
+                        const commonWords = existingWords.filter(w => newWords.includes(w));
+                        
+                        // If more than 60% of words overlap, consider it a duplicate
+                        const similarity = commonWords.length / Math.min(existingWords.length, newWords.length);
+                        return similarity > 0.6;
+                    });
+                    
+                    if (isDuplicate) {
+                        console.log(`⏭️ Skipping duplicate node: ${node.label}`);
+                        continue;
+                    }
+                    
                     const nodeId = graphService.addNode({
                         id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         label: node.label,
@@ -130,6 +193,158 @@ Return ONLY valid JSON in this exact format (no markdown, no code blocks):
         graphService.clear();
         io.emit('graph:update', graphService.getGraph());
         console.log('✅ Graph cleared');
+    });
+
+    socket.on('remove-node', (data: { nodeId: string }) => {
+        console.log('🗑️ Removing node:', data.nodeId);
+        const success = graphService.removeNode(data.nodeId);
+        if (success) {
+            io.emit('graph:update', graphService.getGraph());
+            socket.emit('node-removed', { nodeId: data.nodeId, success: true });
+            console.log('✅ Node removed');
+        } else {
+            socket.emit('error', { message: 'Node not found' });
+        }
+    });
+
+    socket.on('remove-edge', (data: { edgeId: string }) => {
+        console.log('🗑️ Removing edge:', data.edgeId);
+        const success = graphService.removeEdge(data.edgeId);
+        if (success) {
+            io.emit('graph:update', graphService.getGraph());
+            socket.emit('edge-removed', { edgeId: data.edgeId, success: true });
+            console.log('✅ Edge removed');
+        } else {
+            socket.emit('error', { message: 'Edge not found' });
+        }
+    });
+
+    socket.on('restructure-graph', (data: { nodes: any[], edges: any[] }) => {
+        console.log('🔄 Restructuring graph with new data');
+        graphService.replaceGraph(data);
+        io.emit('graph:update', graphService.getGraph());
+        socket.emit('graph-restructured', { success: true });
+        console.log('✅ Graph restructured');
+    });
+
+    socket.on('refine-graph', async (data: { conversationContext: string }) => {
+        try {
+            console.log('🔍 Refining graph based on current state');
+            const currentGraph = graphService.getGraph();
+            
+            if (currentGraph.nodes.length === 0) {
+                console.log('⏭️ No nodes to refine');
+                return;
+            }
+
+            const refinementPrompt = `You are AGGRESSIVELY cleaning up a knowledge graph. Remove ALL redundancy and create clear hierarchy.
+
+CURRENT CONVERSATION CONTEXT:
+${data.conversationContext}
+
+CURRENT GRAPH:
+Nodes: ${JSON.stringify(currentGraph.nodes.map(n => ({ id: n.id, label: n.data.label })))}
+Edges: ${JSON.stringify(currentGraph.edges.map(e => ({ source: e.source, target: e.target, relationship: e.relationship })))}
+
+AGGRESSIVE CLEANUP RULES:
+1. REMOVE ALL semantically duplicate nodes (keep only the most specific one)
+2. REMOVE vague or generic nodes
+3. Target: 3-7 nodes MAXIMUM in final graph
+4. CREATE hierarchical edges between remaining nodes
+5. Ensure nodes form a TREE structure (parent → children)
+
+EXAMPLES OF DUPLICATES TO REMOVE:
+- "User struggles with math" + "User has difficulty with addition" → KEEP ONLY ONE
+- "Addition is combining numbers" + "Addition process" → KEEP ONLY ONE
+- "AI will explain" + "AI intends to explain" → REMOVE BOTH (meta-talk)
+
+WHAT TO KEEP:
+- Most specific, detailed version of each concept
+- Nodes that form a clear parent-child hierarchy
+- Actionable, concrete ideas
+
+WHAT TO REMOVE:
+- Semantic duplicates (similar meaning)
+- Vague generalizations
+- Meta-conversation nodes
+- Nodes without clear parent/child relationships
+
+Return ONLY valid JSON (no markdown):
+{
+  "nodesToRemove": ["id1", "id2", "id3"],
+  "nodesToUpdate": [
+    {"id": "existing-id", "newLabel": "More specific label", "category": "problem|solution|technology|plan|action"}
+  ],
+  "edgesToAdd": [
+    {"source": "parent-id", "target": "child-id", "relationship": "branches to|solves|implements"}
+  ]
+}
+
+BE AGGRESSIVE: Remove 50-70% of nodes if they're redundant!`;
+
+            const response = await openRouterService.chat(refinementPrompt, 'google/gemini-2.0-flash-exp:free');
+            console.log('🤖 Refinement response:', response);
+
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('❌ No JSON found in refinement response');
+                return;
+            }
+
+            const refinements = JSON.parse(jsonMatch[0]);
+            console.log('✅ Parsed refinements:', refinements);
+
+            // Apply refinements
+            let changesMade = false;
+
+            // Remove nodes
+            if (refinements.nodesToRemove && Array.isArray(refinements.nodesToRemove)) {
+                for (const nodeId of refinements.nodesToRemove) {
+                    if (graphService.removeNode(nodeId)) {
+                        console.log(`🗑️ Removed node: ${nodeId}`);
+                        changesMade = true;
+                    }
+                }
+            }
+
+            // Update nodes
+            if (refinements.nodesToUpdate && Array.isArray(refinements.nodesToUpdate)) {
+                for (const update of refinements.nodesToUpdate) {
+                    if (graphService.updateNode(update.id, { 
+                        label: update.newLabel,
+                        category: update.category 
+                    })) {
+                        console.log(`✏️ Updated node: ${update.id} -> ${update.newLabel}`);
+                        changesMade = true;
+                    }
+                }
+            }
+
+            // Add edges
+            if (refinements.edgesToAdd && Array.isArray(refinements.edgesToAdd)) {
+                for (const edge of refinements.edgesToAdd) {
+                    graphService.addEdge({
+                        source: edge.source,
+                        target: edge.target,
+                        relationship: edge.relationship || 'relatesTo'
+                    });
+                    console.log(`➕ Added edge: ${edge.source} -> ${edge.target}`);
+                    changesMade = true;
+                }
+            }
+
+            if (changesMade) {
+                io.emit('graph:update', graphService.getGraph());
+                socket.emit('graph-refined', { success: true });
+                console.log('✅ Graph refinement complete');
+            } else {
+                console.log('ℹ️ No refinements needed');
+            }
+
+        } catch (error) {
+            console.error('❌ Error refining graph:', error);
+            socket.emit('error', { message: 'Failed to refine graph' });
+        }
     });
 });
 

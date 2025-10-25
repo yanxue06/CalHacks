@@ -72,7 +72,7 @@ export class WebSocketService {
       graph.edges.forEach((edge: any) => {
         const diagramEdge: DiagramEdge = {
           id: edge.id,
-          type: 'relatesTo',
+          type: edge.relationship || edge.type || 'relates to', // Use actual relationship from backend
           source: edge.source,
           target: edge.target,
           data: {
@@ -107,7 +107,7 @@ export class WebSocketService {
       data.edges.forEach((edge: any) => {
         const diagramEdge: DiagramEdge = {
           id: edge.id,
-          type: 'relatesTo',
+          type: edge.relationship || edge.type || 'relates to', // Use actual relationship from backend
           source: edge.source,
           target: edge.target,
           data: {
@@ -170,6 +170,42 @@ export class WebSocketService {
     if (this.socket) {
       console.log('🗑️ Clearing graph via WebSocket');
       this.socket.emit('clear-graph');
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
+  removeNode(nodeId: string) {
+    if (this.socket) {
+      console.log('🗑️ Removing node via WebSocket:', nodeId);
+      this.socket.emit('remove-node', { nodeId });
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
+  removeEdge(edgeId: string) {
+    if (this.socket) {
+      console.log('🗑️ Removing edge via WebSocket:', edgeId);
+      this.socket.emit('remove-edge', { edgeId });
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
+  restructureGraph(nodes: any[], edges: any[]) {
+    if (this.socket) {
+      console.log('🔄 Restructuring graph via WebSocket');
+      this.socket.emit('restructure-graph', { nodes, edges });
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
+  refineGraph(conversationContext: string) {
+    if (this.socket) {
+      console.log('🔍 Requesting graph refinement via WebSocket');
+      this.socket.emit('refine-graph', { conversationContext });
     } else {
       console.error('❌ WebSocket not connected');
     }

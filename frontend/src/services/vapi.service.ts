@@ -6,7 +6,8 @@ export class VapiService {
   private backendUrl: string;
   private isActive: boolean = false;
   private isDevelopment: boolean = false; // Set to false to use real Vapi
-  private onTranscriptCallback: ((text: string) => void) | null = null;
+  private onTranscriptCallback: ((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => void) | null = null;
+  private conversationHistory: Array<{ role: 'user' | 'assistant', text: string }> = [];
 
   constructor() {
     this.publicKey = import.meta.env.VITE_VAPI_PUBLIC_KEY || '';
@@ -17,8 +18,18 @@ export class VapiService {
     }
   }
 
-  setTranscriptCallback(callback: (text: string) => void) {
+  setTranscriptCallback(callback: (conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => void) {
     this.onTranscriptCallback = callback;
+  }
+
+  getConversationHistory(): string {
+    return this.conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+      .join('\n');
+  }
+
+  clearConversationHistory() {
+    this.conversationHistory = [];
   }
 
   async initialize() {
@@ -64,8 +75,17 @@ export class VapiService {
       // Handle different message types
       if (message.type === 'transcript') {
         console.log('📝 Transcript:', message.transcript);
-        // Only process FINAL USER transcripts (not assistant responses, not partial)
-        if (message.role === 'user' && message.transcriptType === 'final') {
+        
+        // Store ALL final transcripts (both user and assistant) in conversation history
+        if (message.transcriptType === 'final') {
+          this.conversationHistory.push({
+            role: message.role,
+            text: message.transcript
+          });
+          console.log(`💬 Added to conversation: ${message.role} - ${message.transcript}`);
+          
+          // Trigger processing on BOTH user and assistant final transcripts
+          // This ensures nodes are generated as the conversation evolves
           this.processTranscript(message.transcript);
         }
       } else if (message.type === 'function-call') {
@@ -84,6 +104,10 @@ export class VapiService {
   }
 
   async startRecording() {
+    // Clear conversation history when starting a new recording
+    this.clearConversationHistory();
+    console.log('🗑️ Cleared conversation history for new recording');
+    
     // For development mode, skip Vapi initialization and simulate recording
     if (this.isDevelopment) {
       console.log('🔧 Development mode: Simulating Vapi recording');
@@ -108,19 +132,33 @@ export class VapiService {
     }
 
     try {
-      // Start Vapi with minimal configuration for transcription
+      // Start Vapi with custom assistant that only responds when triggered
       const vapiConfig = {
         transcriber: {
           provider: 'deepgram' as const,
           model: 'nova-2',
           language: 'en'
+        },
+        model: {
+          provider: 'openai',
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'system',
+              content: `You are a helpful AI assistant. IMPORTANT: You should ONLY respond when the user explicitly says "Vapi, what do you think" or "Vapi what do you think". 
+
+If the user says anything else, remain completely silent and do not respond at all. Do not acknowledge their statements unless they specifically invoke you with "Vapi, what do you think".
+
+When invoked, provide brief, helpful responses about the topic they're discussing.`
+            }
+          ]
         }
       };
 
       console.log('🚀 Starting Vapi recording...');
       await this.vapi.start(vapiConfig);
 
-      console.log('✅ Vapi recording started');
+      console.log('✅ Vapi recording started (AI will only respond when you say "Vapi, what do you think")');
     } catch (error) {
       console.error('Failed to start Vapi recording:', error);
       
@@ -174,10 +212,14 @@ export class VapiService {
         return;
       }
       
-      // Use callback to send transcript to Board component, which will use WebSocket
+      // Send the ENTIRE conversation history, not just the last message
+      const fullConversation = this.getConversationHistory();
+      console.log('📜 Full conversation history:', fullConversation);
+      
+      // Use callback to send full conversation to Board component, which will use WebSocket
       if (this.onTranscriptCallback) {
-        console.log('📤 Sending substantial transcript via callback');
-        this.onTranscriptCallback(transcript);
+        console.log('📤 Sending full conversation via callback');
+        this.onTranscriptCallback(this.conversationHistory);
       } else {
         console.warn('⚠️ No transcript callback set');
       }

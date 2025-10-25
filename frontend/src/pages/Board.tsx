@@ -42,10 +42,19 @@ const Board = () => {
   const vapiService = useRef(new VapiService());
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const lastProcessedTime = useRef<number>(0);
+  const lastRefinementTime = useRef<number>(0);
+  const refinementIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const MIN_PROCESS_INTERVAL = 5000; // 5 seconds between processing
+  const REFINEMENT_INTERVAL = 10000; // 10 seconds between refinements
 
-  const handleTranscript = useCallback((transcript: string) => {
-    console.log('📝 Received transcript from Vapi:', transcript);
+  const handleTranscript = useCallback((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => {
+    console.log('📝 Received conversation history from Vapi:', conversationHistory);
+    
+    // Only process if we have substantial conversation (at least 2 exchanges: 1 user + 1 AI)
+    if (conversationHistory.length < 2) {
+      console.log('⏭️ Skipping - need at least 2 conversation exchanges');
+      return;
+    }
     
     // Rate limiting: prevent processing too frequently
     const now = Date.now();
@@ -53,21 +62,22 @@ const Board = () => {
     
     if (timeSinceLastProcess < MIN_PROCESS_INTERVAL) {
       console.log(`⏱️ Rate limited: waiting ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s before next process`);
-      toast.warning('Please wait', {
-        description: `Wait ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s between requests`
-      });
+      // Don't show toast for rate limiting - it's too noisy
       return;
     }
     
     // Update last processed time
     lastProcessedTime.current = now;
     
-    // Send transcript to backend via WebSocket
-    wsService.current.sendTranscript(transcript);
+    // Format conversation for backend
+    const formattedConversation = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+      .join('\n');
     
-    toast.info('Processing speech...', {
-      description: 'Generating diagram nodes'
-    });
+    // Send full conversation to backend via WebSocket
+    wsService.current.sendTranscript(formattedConversation);
+    
+    console.log('📤 Sent conversation to backend for processing');
   }, []);
 
   useEffect(() => {
@@ -102,10 +112,27 @@ const Board = () => {
           target: edge.target,
           type: 'smoothstep',
           animated: true,
-          style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
+          label: edge.type || 'relates to', // Show relationship type as label
+          labelStyle: { 
+            fill: 'hsl(var(--primary))', 
+            fontWeight: 600,
+            fontSize: 12
+          },
+          labelBgStyle: { 
+            fill: 'hsl(var(--background))', 
+            fillOpacity: 0.9 
+          },
+          labelBgPadding: [8, 4] as [number, number],
+          labelBgBorderRadius: 4,
+          style: { 
+            stroke: 'hsl(var(--primary))', 
+            strokeWidth: 3 // Thicker for better visibility
+          },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: 'hsl(var(--primary))',
+            width: 25,
+            height: 25,
           },
           data: {
             sourceRefs: edge.data.sourceRefs,
@@ -155,6 +182,15 @@ const Board = () => {
       
       await vapiService.current.startRecording();
       
+      // Start refinement interval - refine graph every 10 seconds during recording
+      refinementIntervalRef.current = setInterval(() => {
+        const conversationHistory = vapiService.current.getConversationHistory();
+        if (conversationHistory && conversationHistory.length > 0) {
+          console.log('🔍 Triggering periodic graph refinement');
+          wsService.current.refineGraph(conversationHistory);
+        }
+      }, REFINEMENT_INTERVAL);
+      
       toast.success('Recording started', {
         description: 'Speak naturally and Vapi will transcribe and analyze your conversation'
       });
@@ -170,6 +206,14 @@ const Board = () => {
   const handleStopRecording = useCallback(async () => {
     try {
       setStatus('finalizing');
+      
+      // Stop refinement interval
+      if (refinementIntervalRef.current) {
+        clearInterval(refinementIntervalRef.current);
+        refinementIntervalRef.current = null;
+        console.log('⏹️ Stopped refinement interval');
+      }
+      
       await vapiService.current.stopRecording();
       
       toast.info('Processing...', {

@@ -21,6 +21,92 @@ export class GraphService {
     }
 
     /**
+     * Clear all nodes and edges from the graph
+     */
+    clear(): void {
+        this.graph = {
+            nodes: [],
+            edges: []
+        };
+        this.transcriptHistory = [];
+    }
+
+    /**
+     * Remove a specific node and all its edges
+     */
+    removeNode(nodeId: string): boolean {
+        const nodeIndex = this.graph.nodes.findIndex(node => node.id === nodeId);
+        if (nodeIndex === -1) return false;
+        
+        // Remove the node
+        this.graph.nodes.splice(nodeIndex, 1);
+        
+        // Remove all edges connected to this node
+        this.graph.edges = this.graph.edges.filter(edge => 
+            edge.source !== nodeId && edge.target !== nodeId
+        );
+        
+        return true;
+    }
+
+    /**
+     * Remove a specific edge
+     */
+    removeEdge(edgeId: string): boolean {
+        const edgeIndex = this.graph.edges.findIndex(edge => edge.id === edgeId);
+        if (edgeIndex === -1) return false;
+        
+        this.graph.edges.splice(edgeIndex, 1);
+        return true;
+    }
+
+    /**
+     * Update an existing node
+     */
+    updateNode(nodeId: string, updates: Partial<NodeInput>): boolean {
+        const nodeIndex = this.graph.nodes.findIndex(node => node.id === nodeId);
+        if (nodeIndex === -1) return false;
+        
+        this.graph.nodes[nodeIndex] = {
+            ...this.graph.nodes[nodeIndex],
+            ...updates,
+            id: nodeId // Ensure ID doesn't change
+        };
+        
+        return true;
+    }
+
+    /**
+     * Replace the entire graph with new data (for restructuring)
+     */
+    replaceGraph(newGraph: { nodes: NodeInput[], edges: any[] }): void {
+        this.graph = {
+            nodes: newGraph.nodes.map(node => ({
+                id: node.id || randomUUID(),
+                label: node.label,
+                category: node.category || 'service',
+                importance: node.importance || 'medium',
+                position: node.position || { x: 0, y: 0 },
+                data: {
+                    label: node.label,
+                    sourceRefs: node.data?.sourceRefs || [],
+                    confidence: node.data?.confidence || 0.8
+                }
+            })),
+            edges: newGraph.edges.map(edge => ({
+                id: edge.id || randomUUID(),
+                source: edge.source,
+                target: edge.target,
+                relationship: edge.relationship || 'relatesTo',
+                data: {
+                    sourceRefs: edge.data?.sourceRefs || [],
+                    confidence: edge.data?.confidence || 0.8
+                }
+            }))
+        };
+    }
+
+    /**
      * Add a transcript entry with speaker information
      */
     addTranscript(speaker: string, text: string): void {
