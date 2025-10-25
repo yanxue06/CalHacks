@@ -141,12 +141,12 @@ app.post('/api/vapi/function-call', async (req: Request, res: Response): Promise
                 // Create a map to track node IDs by label
                 const nodeIdMap: Record<string, string> = {};
 
-                // Add nodes to graph
+                // Add nodes to graph (React Flow format)
                 const addedNodes = nodes.map((node: any) => {
                     const newNode = graphService.addNode({
                         label: node.label,
-                        type: node.type,
-                        data: node.data
+                        category: node.type || node.category, // Support both 'type' and 'category' from Gemini
+                        metadata: node.data
                     });
                     nodeIdMap[node.label] = newNode.id;
                     return newNode;
@@ -242,14 +242,20 @@ app.post('/api/graph/clear', (req: Request, res: Response) => {
 // Manually add node (for testing)
 app.post('/api/graph/node', (req: Request, res: Response): void => {
     try {
-        const { label, type, data } = req.body;
+        const { label, category, type, metadata, position } = req.body;
         
-        if (!label || !type) {
-            res.status(400).json({ error: 'Label and type are required' });
+        if (!label || !category) {
+            res.status(400).json({ error: 'Label and category are required' });
             return;
         }
 
-        const node = graphService.addNode({ label, type, data });
+        const node = graphService.addNode({ 
+            label, 
+            category,
+            type,
+            metadata,
+            position
+        });
         io.emit('graph:update', graphService.getGraph());
         
         res.json({ node });
@@ -262,14 +268,14 @@ app.post('/api/graph/node', (req: Request, res: Response): void => {
 // Manually add edge (for testing)
 app.post('/api/graph/edge', (req: Request, res: Response): void => {
     try {
-        const { source, target, label } = req.body;
+        const { source, target, label, type, animated } = req.body;
         
         if (!source || !target) {
             res.status(400).json({ error: 'Source and target are required' });
             return;
         }
 
-        const edge = graphService.addEdge(source, target, label);
+        const edge = graphService.addEdge(source, target, label, type, animated);
         io.emit('graph:update', graphService.getGraph());
         
         res.json({ edge });

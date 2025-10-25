@@ -63,16 +63,16 @@ Be proactive but not overwhelming - create nodes for meaningful points, not ever
                                         properties: {
                                             label: {
                                                 type: 'string',
-                                                description: 'The text label for the node'
+                                                description: 'The text label to display on the node'
                                             },
                                             type: {
                                                 type: 'string',
                                                 enum: ['Input', 'System', 'Action', 'Output', 'Decision'],
-                                                description: 'The type of node'
+                                                description: 'The category/type of node (Input=start, System=concept, Action=task, Decision=choice, Output=result)'
                                             },
                                             data: {
                                                 type: 'object',
-                                                description: 'Additional data about this node (optional)'
+                                                description: 'Additional metadata or context about this node (optional)'
                                             }
                                         },
                                         required: ['label', 'type']
@@ -180,12 +180,19 @@ Be proactive but not overwhelming - create nodes for meaningful points, not ever
                                     items: {
                                         type: 'object',
                                         properties: {
-                                            label: { type: 'string' },
+                                            label: { 
+                                                type: 'string',
+                                                description: 'Display label'
+                                            },
                                             type: {
                                                 type: 'string',
-                                                enum: ['Input', 'System', 'Action', 'Output', 'Decision']
+                                                enum: ['Input', 'System', 'Action', 'Output', 'Decision'],
+                                                description: 'Node category'
                                             },
-                                            data: { type: 'object' }
+                                            data: { 
+                                                type: 'object',
+                                                description: 'Extra metadata'
+                                            }
                                         },
                                         required: ['label', 'type']
                                     }

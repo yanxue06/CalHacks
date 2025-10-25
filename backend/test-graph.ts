@@ -10,23 +10,23 @@ console.log('🧪 Testing Graph Service...\n');
 
 const graphService = new GraphService();
 
-// Test 1: Add nodes
+// Test 1: Add nodes (React Flow format)
 console.log('1️⃣ Adding nodes...');
 const node1 = graphService.addNode({
     label: 'Meeting Started',
-    type: 'Input'
+    category: 'Input'
 });
 console.log('✅ Added node 1:', node1);
 
 const node2 = graphService.addNode({
     label: 'Discuss Budget',
-    type: 'Action'
+    category: 'Action'
 });
 console.log('✅ Added node 2:', node2);
 
 const node3 = graphService.addNode({
     label: 'Budget Approved',
-    type: 'Decision'
+    category: 'Decision'
 });
 console.log('✅ Added node 3:', node3);
 
@@ -52,12 +52,12 @@ console.log('Assistant name:', config.name);
 console.log('Model:', config.model.model);
 console.log('Functions:', config.model.functions?.map(f => f.name));
 
-// Test 5: Simulate function call
+// Test 5: Simulate function call (React Flow format)
 console.log('\n5️⃣ Simulating Vapi function call...');
 const functionCallArgs = {
     nodes: [
-        { label: 'Task 1', type: 'Action' as const },
-        { label: 'Task 2', type: 'Action' as const }
+        { label: 'Task 1', category: 'Action' as const },
+        { label: 'Task 2', category: 'Action' as const }
     ],
     edges: [
         { source: 'Task 1', target: 'Task 2' }
@@ -69,7 +69,7 @@ const nodeIdMap: Record<string, string> = {};
 functionCallArgs.nodes.forEach(node => {
     const newNode = graphService.addNode(node);
     nodeIdMap[node.label] = newNode.id;
-    console.log(`✅ Added node from function call: ${newNode.label}`);
+    console.log(`✅ Added node from function call: ${newNode.data.label}`);
 });
 
 functionCallArgs.edges.forEach(edge => {
@@ -81,13 +81,25 @@ functionCallArgs.edges.forEach(edge => {
     }
 });
 
-// Test 6: Final graph state
+// Test 6: Final graph state (React Flow format)
 console.log('\n6️⃣ Final graph state:');
 const finalGraph = graphService.getGraph();
 console.log(`Total nodes: ${finalGraph.nodes.length}`);
 console.log(`Total edges: ${finalGraph.edges.length}`);
-console.log('\nNodes:', finalGraph.nodes.map(n => ({ id: n.id, label: n.label, type: n.type })));
-console.log('\nEdges:', finalGraph.edges.map(e => ({ id: e.id, source: e.source, target: e.target })));
+console.log('\nNodes:', finalGraph.nodes.map(n => ({ 
+    id: n.id, 
+    label: n.data.label, 
+    category: n.data.category,
+    type: n.type,
+    position: n.position
+})));
+console.log('\nEdges:', finalGraph.edges.map(e => ({ 
+    id: e.id, 
+    source: e.source, 
+    target: e.target,
+    type: e.type
+})));
 
 console.log('\n✅ All tests passed!');
+console.log('\n📊 React Flow Ready: This graph can be directly used with ReactFlow on the frontend!');
 
