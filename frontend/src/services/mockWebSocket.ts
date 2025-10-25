@@ -1,20 +1,20 @@
 import { DiagramNode, DiagramEdge, Decision, ActionItem, SourceRef } from '@/types/diagram';
 
-// Mock data for demonstration
-const mockSpeakers = ['Alice', 'Bob', 'Charlie'];
-const mockServices = ['API Gateway', 'Auth Service', 'User Service', 'Notification Service', 'Payment Service'];
+// Mock data for a product planning conversation
+const mockSpeakers = ['Ava (PM)', 'Ben (Eng)', 'Mia (Design)', 'Leo (Data)', 'Nina (Ops)'];
+const mockServices = ['Onboarding Flow', 'Billing Integration', 'AI Meeting Summary'];
 const mockDatabases = ['User DB', 'Session Store', 'Analytics DB', 'Cache'];
 const mockDecisions = [
-  'Store tokens in Redis for faster lookup',
-  'Use JWT for authentication',
-  'Implement rate limiting at gateway level',
-  'Add monitoring for all services'
+  'Reduce onboarding friction to improve activation',
+  'Offer self-serve billing for faster GTM',
+  'Ship AI meeting notes to Jira for follow-through'
 ];
 const mockActions = [
-  'Ian: Add monitoring dashboards',
-  'Sarah: Set up CI/CD pipeline',
-  'Mike: Document API endpoints',
-  'Lisa: Review security policies'
+  'Ava: Define the success metrics for activation v1',
+  'Mia: Design sign-up funnel v1',
+  'Ben: Integrate Stripe Checkout',
+  'Nina: Set up webhook retriers',
+  'Leo: Create Jira sync job for action items'
 ];
 
 let nodeCounter = 0;
@@ -39,6 +39,10 @@ export class MockWebSocketService {
   private intervalId: number | null = null;
   private nodes: DiagramNode[] = [];
   private isRecording = false;
+  private plannedIndex = 0;
+  private decisionsCreated: DiagramNode[] = [];
+  private servicesCreated: DiagramNode[] = [];
+  private actionsCreated: DiagramNode[] = [];
 
   connect(callbacks: typeof this.callbacks) {
     this.callbacks = callbacks;
@@ -52,15 +56,19 @@ export class MockWebSocketService {
     this.nodes = [];
     nodeCounter = 0;
     edgeCounter = 0;
+    this.plannedIndex = 0;
+    this.decisionsCreated = [];
+    this.servicesCreated = [];
+    this.actionsCreated = [];
 
-    // Simulate nodes and edges appearing over time
+    // Simulate a realistic conversation flow: idea -> feature -> executable
     this.intervalId = window.setInterval(() => {
-      if (nodeCounter < 6) {
-        this.addRandomNode();
-      } else if (edgeCounter < 5 && this.nodes.length > 1) {
-        this.addRandomEdge();
+      const sequence = this.getPlannedSequence();
+      if (this.plannedIndex < sequence.length) {
+        this.addRandomNode(sequence[this.plannedIndex]);
+        this.plannedIndex++;
       }
-    }, 2500);
+    }, 2200);
   }
 
   stopRecording() {
@@ -73,20 +81,23 @@ export class MockWebSocketService {
       this.intervalId = null;
     }
 
-    // Simulate finalization with decisions and action items
+    // Simulate finalization with decisions and action items derived from the session
     setTimeout(() => {
-      const decisions: Decision[] = mockDecisions.slice(0, 2).map(text => ({
-        text,
-        sourceRef: createSourceRef(`We should ${text.toLowerCase()}`),
+      const decisions: Decision[] = this.decisionsCreated.map(node => ({
+        text: node.data.label,
+        sourceRef: node.data.sourceRefs[0],
         confidence: 0.85 + Math.random() * 0.15
       }));
 
-      const actionItems: ActionItem[] = mockActions.slice(0, 3).map(text => {
-        const [owner, task] = text.split(': ');
+      // Use a subset of planned actions to generate action items with owners
+      const actionItems: ActionItem[] = this.actionsCreated.map(node => {
+        // Expect the first sourceRef.quote to be in the form "Owner: Task"
+        const raw = node.data.sourceRefs[0]?.quote || '';
+        const [owner, task] = raw.includes(': ') ? raw.split(': ') : ['', node.data.label];
         return {
-          text: task,
-          owner,
-          sourceRef: createSourceRef(`${owner}, can you ${task.toLowerCase()}?`),
+          text: task || node.data.label,
+          owner: owner || undefined,
+          sourceRef: node.data.sourceRefs[0],
           confidence: 0.80 + Math.random() * 0.15
         };
       });
@@ -95,80 +106,109 @@ export class MockWebSocketService {
     }, 1000);
   }
 
-  private addRandomNode() {
-    const types: Array<'service' | 'database' | 'decision' | 'action'> = 
-      nodeCounter < 3 ? ['service', 'database'] : 
-      nodeCounter < 5 ? ['decision'] : ['action'];
-    
-    const type = types[Math.floor(Math.random() * types.length)];
-    
-    let label = '';
-    let quote = '';
-    
-    switch (type) {
-      case 'service':
-        label = mockServices[nodeCounter % mockServices.length];
-        quote = `We need ${label} to handle this`;
-        break;
-      case 'database':
-        label = mockDatabases[nodeCounter % mockDatabases.length];
-        quote = `Store that in ${label}`;
-        break;
-      case 'decision':
-        label = mockDecisions[nodeCounter % mockDecisions.length];
-        quote = `Let's decide: ${label}`;
-        break;
-      case 'action':
-        const action = mockActions[nodeCounter % mockActions.length];
-        label = action.split(': ')[1];
-        quote = action;
-        break;
-    }
+  private addRandomNode(item: { type: 'service' | 'database' | 'decision' | 'action'; label: string; quote: string; group?: number }) {
+    const type = item.type;
+    const label = item.label;
+    const quote = item.quote;
 
     const node: DiagramNode = {
       id: `node-${nodeCounter}`,
       type,
       position: { 
-        x: 100 + (nodeCounter % 3) * 300, 
-        y: 100 + Math.floor(nodeCounter / 3) * 200 
+        x: 120 + (nodeCounter % 3) * 320, 
+        y: 120 + Math.floor(nodeCounter / 3) * 220 
       },
       data: {
         label,
         sourceRefs: [createSourceRef(quote)],
-        confidence: 0.85 + Math.random() * 0.15
+        confidence: 0.86 + Math.random() * 0.12
       }
     };
 
     this.nodes.push(node);
     this.callbacks.onNode?.(node);
+
+    // Track by type for later linking and summary
+    if (type === 'decision') {
+      this.decisionsCreated.push(node);
+    } else if (type === 'service') {
+      this.servicesCreated.push(node);
+      // Link idea -> feature when both exist in the same group/order
+      const idx = this.servicesCreated.length - 1;
+      if (this.decisionsCreated[idx]) {
+        this.addEdge(this.decisionsCreated[idx].id, node.id, 'relatesTo');
+      }
+    } else if (type === 'action') {
+      this.actionsCreated.push(node);
+      const idx = this.actionsCreated.length - 1;
+      if (this.servicesCreated[idx]) {
+        this.addEdge(this.servicesCreated[idx].id, node.id, 'assignedTo');
+      }
+    }
+
     nodeCounter++;
   }
 
-  private addRandomEdge() {
-    if (this.nodes.length < 2) return;
-
-    const sourceNode = this.nodes[Math.floor(Math.random() * (this.nodes.length - 1))];
-    const targetNode = this.nodes[this.nodes.length - 1];
-    
-    const types: Array<'calls' | 'dependsOn' | 'relatesTo' | 'assignedTo'> = 
-      ['calls', 'dependsOn', 'relatesTo'];
-    
-    const type = types[Math.floor(Math.random() * types.length)];
-
+  private addEdge(sourceId: string, targetId: string, type: 'calls' | 'dependsOn' | 'blocks' | 'assignedTo' | 'relatesTo') {
     const edge: DiagramEdge = {
       id: `edge-${edgeCounter}`,
       type,
-      source: sourceNode.id,
-      target: targetNode.id,
+      source: sourceId,
+      target: targetId,
       data: {
-        sourceRefs: [createSourceRef(`${sourceNode.data.label} ${type} ${targetNode.data.label}`)],
-        confidence: 0.80 + Math.random() * 0.15
+        sourceRefs: [createSourceRef(`${type} link created`)],
+        confidence: 0.82 + Math.random() * 0.14
       }
     };
-
     this.callbacks.onEdge?.(edge);
     edgeCounter++;
   }
+
+  private getPlannedSequence(): Array<{ type: 'service' | 'database' | 'decision' | 'action'; label: string; quote: string; group?: number }> {
+    // Build a simple grouped sequence: [idea, feature, action] x N
+    const sequence: Array<{ type: 'service' | 'database' | 'decision' | 'action'; label: string; quote: string; group?: number }> = [];
+    const ideas = mockDecisions;
+    const features = mockServices;
+    const actions = mockActions;
+
+    const groups = Math.min(ideas.length, features.length, Math.ceil(actions.length / 2));
+    for (let i = 0; i < groups; i++) {
+      // Idea
+      sequence.push({
+        type: 'decision',
+        label: ideas[i],
+        quote: `I think we should ${ideas[i].toLowerCase()}.`
+      });
+      // Feature
+      sequence.push({
+        type: 'service',
+        label: features[i],
+        quote: `Let's scope the ${features[i]} to support that.`
+      });
+      // Two actions per group if available
+      const action1 = actions[i * 2];
+      if (action1) {
+        const [owner, task] = action1.split(': ');
+        sequence.push({
+          type: 'action',
+          label: task || action1,
+          quote: `${owner || 'Someone'}: ${task || action1}`
+        });
+      }
+      const action2 = actions[i * 2 + 1];
+      if (action2) {
+        const [owner, task] = action2.split(': ');
+        sequence.push({
+          type: 'action',
+          label: task || action2,
+          quote: `${owner || 'Someone'}: ${task || action2}`
+        });
+      }
+    }
+    return sequence;
+  }
+
+  // Removed random edge generator to prefer deterministic conversation links
 
   disconnect() {
     if (this.intervalId) {

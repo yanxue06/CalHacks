@@ -9,7 +9,9 @@ import ReactFlow, {
   ConnectionLineType,
   NodeTypes,
   MarkerType,
-  ReactFlowInstance
+  ReactFlowInstance,
+  addEdge,
+  Connection
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { DiagramNode as CustomNode } from '@/components/DiagramNode';
@@ -178,6 +180,21 @@ const Board = () => {
     setSelectedEdge(null);
   }, []);
 
+  const handleConnect = useCallback((params: Connection) => {
+    setEdges((eds) =>
+      addEdge(
+        {
+          ...params,
+          type: 'smoothstep',
+          animated: true,
+          style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
+          markerEnd: { type: MarkerType.ArrowClosed, color: 'hsl(var(--primary))' }
+        },
+        eds
+      )
+    );
+  }, [setEdges]);
+
   return (
     <div className="flex flex-col h-screen bg-background">
       <Toolbar
@@ -198,6 +215,7 @@ const Board = () => {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
+            onConnect={handleConnect}
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
             onPaneClick={handlePaneClick}
