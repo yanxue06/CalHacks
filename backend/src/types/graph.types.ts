@@ -3,6 +3,8 @@
  */
 export type NodeCategory = 'Input' | 'System' | 'Action' | 'Output' | 'Decision';
 
+export type NodeImportance = 'small' | 'medium' | 'large';
+
 /**
  * React Flow compatible Node structure
  * This matches the format expected by ReactFlow
@@ -14,10 +16,15 @@ export interface Node {
         x: number;
         y: number;
     };
+    size?: {  // Visual size for collision detection
+        width: number;
+        height: number;
+    };
     data: {
         label: string; // Display text
         category: NodeCategory; // Semantic category
         timestamp?: string; // When this was created
+        importance?: NodeImportance; // Size indicator
         metadata?: any; // Additional conversation context
     };
 }
@@ -53,6 +60,7 @@ export interface NodeInput {
         x: number;
         y: number;
     };
+    importance?: NodeImportance; // Size indicator
     metadata?: any;
 }
 

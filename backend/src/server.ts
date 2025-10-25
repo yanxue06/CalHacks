@@ -146,6 +146,7 @@ app.post('/api/vapi/function-call', async (req: Request, res: Response): Promise
                     const newNode = graphService.addNode({
                         label: node.label,
                         category: node.type || node.category, // Support both 'type' and 'category' from Gemini
+                        importance: node.importance || 'small', // Add importance from Vapi
                         metadata: node.data
                     });
                     nodeIdMap[node.label] = newNode.id;

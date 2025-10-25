@@ -70,6 +70,11 @@ Be proactive but not overwhelming - create nodes for meaningful points, not ever
                                                 enum: ['Input', 'System', 'Action', 'Output', 'Decision'],
                                                 description: 'The category/type of node (Input=start, System=concept, Action=task, Decision=choice, Output=result)'
                                             },
+                                            importance: {
+                                                type: 'string',
+                                                enum: ['small', 'medium', 'large'],
+                                                description: 'Size/importance of the node (small=simple thought, medium=important point, large=agreed consensus)'
+                                            },
                                             data: {
                                                 type: 'object',
                                                 description: 'Additional metadata or context about this node (optional)'
@@ -188,6 +193,11 @@ Be proactive but not overwhelming - create nodes for meaningful points, not ever
                                                 type: 'string',
                                                 enum: ['Input', 'System', 'Action', 'Output', 'Decision'],
                                                 description: 'Node category'
+                                            },
+                                            importance: {
+                                                type: 'string',
+                                                enum: ['small', 'medium', 'large'],
+                                                description: 'Size/importance of the node (small=simple thought, medium=important point, large=agreed consensus)'
                                             },
                                             data: { 
                                                 type: 'object',

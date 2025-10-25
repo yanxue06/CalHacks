@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { Node, Edge, Graph, NodeInput } from '../types';
+import { Node, Edge, Graph, NodeInput, NodeImportance } from '../types';
 
 export class GraphService {
     private graph: Graph;
@@ -16,17 +16,78 @@ export class GraphService {
     }
 
     /**
+     * Calculate node size based on importance
+     */
+    private getSizeForImportance(importance: NodeImportance): { width: number; height: number } {
+        const sizeMap = {
+            small: { width: 120, height: 80 },
+            medium: { width: 200, height: 100 },
+            large: { width: 300, height: 150 }
+        };
+        return sizeMap[importance];
+    }
+
+    /**
+     * Find a non-overlapping position for a node
+     */
+    private findNonOverlappingPosition(size: { width: number; height: number }): { x: number; y: number } {
+        const padding = 40; // Extra space between nodes
+        const gridSize = 100; // Grid increment size
+        
+        // Try positions in a spiral pattern
+        for (let radius = 0; radius < 20; radius++) {
+            for (let theta = 0; theta < 360; theta += 15) {
+                const radians = (theta * Math.PI) / 180;
+                const x = 500 + Math.cos(radians) * radius * gridSize;
+                const y = 300 + Math.sin(radians) * radius * gridSize;
+                
+                const wouldOverlap = this.graph.nodes.some(node => {
+                    const nodeSize = node.size || { width: 120, height: 80 };
+                    return (
+                        x < node.position.x + nodeSize.width + padding &&
+                        x + size.width + padding > node.position.x &&
+                        y < node.position.y + nodeSize.height + padding &&
+                        y + size.height + padding > node.position.y
+                    );
+                });
+                
+                if (!wouldOverlap) {
+                    return { x, y };
+                }
+            }
+        }
+        
+        // Fallback: return a position away from existing nodes
+        const lastNode = this.graph.nodes[this.graph.nodes.length - 1];
+        if (lastNode) {
+            const nodeSize = lastNode.size || { width: 120, height: 80 };
+            return {
+                x: lastNode.position.x + nodeSize.width + padding,
+                y: lastNode.position.y
+            };
+        }
+        
+        return { x: 100, y: 100 };
+    }
+
+    /**
      * Add a node to the graph (React Flow compatible)
      */
     addNode(input: NodeInput): Node {
+        const importance: NodeImportance = input.importance || 'small';
+        const size = this.getSizeForImportance(importance);
+        const position = input.position || this.findNonOverlappingPosition(size);
+        
         const newNode: Node = {
             id: randomUUID(),
             type: input.type || input.category.toLowerCase(), // Use category as default type
-            position: input.position || this.calculateAutoPosition(),
+            position,
+            size,  // Add size to node
             data: {
                 label: input.label,
                 category: input.category,
                 timestamp: new Date().toISOString(),
+                importance,  // Add importance to data
                 metadata: input.metadata
             }
         };
