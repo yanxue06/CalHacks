@@ -1,5 +1,5 @@
 import { Button } from '@/components/ui/button';
-import { Play, Square, Save, Download, Maximize2 } from 'lucide-react';
+import { Play, Square, Save, Download, Maximize2, GitBranch } from 'lucide-react';
 import { RecordingStatus } from '@/types/diagram';
 
 interface ToolbarProps {
@@ -9,6 +9,7 @@ interface ToolbarProps {
   onSave: () => void;
   onExport: () => void;
   onRecenter: () => void;
+  onSimulateLarge?: () => void;
 }
 
 export const Toolbar = ({
@@ -17,7 +18,8 @@ export const Toolbar = ({
   onStopRecording,
   onSave,
   onExport,
-  onRecenter
+  onRecenter,
+  onSimulateLarge
 }: ToolbarProps) => {
   const isRecording = status === 'listening' || status === 'processing' || status === 'finalizing';
 
@@ -78,6 +80,18 @@ export const Toolbar = ({
         <Maximize2 className="w-4 h-4" />
         Recenter
       </Button>
+
+      {onSimulateLarge && (
+        <Button
+          onClick={onSimulateLarge}
+          variant="outline"
+          size="sm"
+          className="gap-2 ml-auto"
+        >
+          <GitBranch className="w-4 h-4" />
+          Generate 40-node Tree
+        </Button>
+      )}
     </div>
   );
 };

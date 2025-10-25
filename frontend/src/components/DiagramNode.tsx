@@ -1,11 +1,11 @@
 import { memo } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { NodeType } from '@/types/diagram';
-import { Database, Lightbulb, CheckCircle2, Server } from 'lucide-react';
+import { Database, Lightbulb, CheckCircle2, MessageSquare, MessageSquareQuote } from 'lucide-react';
 
 const nodeConfig = {
-  service: { icon: Server, color: 'hsl(var(--node-service))', label: 'Service' },
-  database: { icon: Database, color: 'hsl(var(--node-database))', label: 'Database' },
+  service: { icon: MessageSquare, color: 'hsl(var(--node-service))', label: 'Idea' },
+  database: { icon: MessageSquareQuote, color: 'hsl(var(--node-database))', label: 'Evidence' },
   decision: { icon: Lightbulb, color: 'hsl(var(--node-decision))', label: 'Decision' },
   action: { icon: CheckCircle2, color: 'hsl(var(--node-action))', label: 'Action' }
 };
@@ -15,6 +15,7 @@ export const DiagramNode = memo(({ data, selected }: NodeProps) => {
   const config = nodeConfig[nodeType];
   const Icon = config.icon;
   const isDraft = (data.confidence || 1) < 0.85;
+  const scale = typeof data.size === 'number' ? data.size : 1;
 
   return (
     <div 
@@ -26,9 +27,10 @@ export const DiagramNode = memo(({ data, selected }: NodeProps) => {
       `}
       style={{
         borderColor: selected ? config.color : undefined,
+        transform: `scale(${scale})`
       }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      <Handle type="target" position={Position.Top} className="!bg-primary" />
       
       <div className="flex items-start gap-2">
         <div 
@@ -43,13 +45,18 @@ export const DiagramNode = memo(({ data, selected }: NodeProps) => {
           <div className="font-medium text-sm text-foreground leading-tight">
             {data.label}
           </div>
+          {data.description && (
+            <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+              {data.description}
+            </div>
+          )}
           {isDraft && (
             <div className="text-xs text-muted-foreground mt-1">Draft</div>
           )}
         </div>
       </div>
       
-      <Handle type="source" position={Position.Right} className="!bg-primary" />
+      <Handle type="source" position={Position.Bottom} className="!bg-primary" />
     </div>
   );
 });

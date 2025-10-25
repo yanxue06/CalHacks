@@ -13,8 +13,13 @@ export interface DiagramNode {
   position: { x: number; y: number };
   data: {
     label: string;
+    description?: string;
     sourceRefs: SourceRef[];
     confidence?: number;
+    // Optional visual/layout metadata for simulations
+    size?: number;
+    level?: number;
+    treeId?: number;
   };
 }
 

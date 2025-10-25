@@ -39,6 +39,9 @@ const Board = () => {
   
   const wsService = useRef(new MockWebSocketService());
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const undoStack = useRef<Node[][]>([]);
+  const redoStack = useRef<Node[][]>([]);
+  const dragSnapshotRef = useRef<Node[] | null>(null);
 
   useEffect(() => {
     wsService.current.connect({
@@ -51,7 +54,9 @@ const Board = () => {
             label: node.data.label,
             nodeType: node.type,
             sourceRefs: node.data.sourceRefs,
-            confidence: node.data.confidence
+        confidence: node.data.confidence,
+        size: (node as any).data.size,
+        description: (node as any).data.description
           },
         };
         
@@ -148,6 +153,58 @@ const Board = () => {
     toast.info('View recentered');
   }, [reactFlowInstance]);
 
+  const handleSimulateLarge = useCallback(() => {
+    setNodes([]);
+    setEdges([]);
+    setDecisions([]);
+    setActionItems([]);
+    wsService.current.simulateLargeTree(40, 1);
+    toast.success('Generated simulation', { description: '40-node tree created' });
+    setTimeout(() => reactFlowInstance?.fitView({ padding: 0.2, duration: 800 }), 50);
+  }, [reactFlowInstance, setNodes, setEdges]);
+
+  // Snapshot before a drag to enable undo of last move
+  const handleNodeDragStart = useCallback((_event: any, _node: Node) => {
+    dragSnapshotRef.current = nodes.map(n => ({ ...n, position: { ...n.position } }));
+  }, [nodes]);
+
+  // After drag stops, push the snapshot to undo history
+  const handleNodeDragStop = useCallback(() => {
+    if (dragSnapshotRef.current) {
+      undoStack.current.push(dragSnapshotRef.current);
+      redoStack.current = [];
+      dragSnapshotRef.current = null;
+    }
+  }, []);
+
+  // Ctrl/Cmd+Z to undo last move, Shift+Ctrl/Cmd+Z to redo
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      const key = e.key.toLowerCase();
+      if (mod && key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        const prev = undoStack.current.pop();
+        if (prev) {
+          const current = nodes.map(n => ({ ...n, position: { ...n.position } }));
+          redoStack.current.push(current);
+          setNodes(prev);
+        }
+      } else if (mod && key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        const next = redoStack.current.pop();
+        if (next) {
+          const current = nodes.map(n => ({ ...n, position: { ...n.position } }));
+          undoStack.current.push(current);
+          setNodes(next);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nodes, setNodes]);
+
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     const diagramNode: DiagramNode = {
       id: node.id,
@@ -204,6 +261,7 @@ const Board = () => {
         onSave={handleSave}
         onExport={handleExport}
         onRecenter={handleRecenter}
+        onSimulateLarge={handleSimulateLarge}
       />
       
       <StatusBanner status={status} />
@@ -219,6 +277,8 @@ const Board = () => {
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
             onPaneClick={handlePaneClick}
+            onNodeDragStart={handleNodeDragStart}
+            onNodeDragStop={handleNodeDragStop}
             onInit={setReactFlowInstance}
             nodeTypes={nodeTypes}
             connectionLineType={ConnectionLineType.SmoothStep}
