@@ -229,6 +229,72 @@ export class GraphService {
         Object.assign(node, updates);
         return node;
     }
+
+    /**
+     * Merge multiple nodes into a single larger node
+     * This represents when multiple small thoughts combine into an agreed-upon idea
+     */
+    mergeNodes(nodeIds: string[], mergedLabel: string, mergedCategory?: string): Node | null {
+        // Get nodes to merge
+        const nodesToMerge = this.graph.nodes.filter(n => nodeIds.includes(n.id));
+        
+        if (nodesToMerge.length < 2) {
+            return null; // Need at least 2 nodes to merge
+        }
+
+        // Collect all transcripts and metadata from source nodes
+        const allTranscripts: Array<{ speaker: string; text: string; timestamp: string }> = [];
+        const mergedMetadata: any = {
+            mergedFrom: nodeIds,
+            sourceLabels: nodesToMerge.map(n => n.data.label),
+            mergeTimestamp: new Date().toISOString()
+        };
+
+        // Collect transcripts from each node's metadata
+        nodesToMerge.forEach(node => {
+            if (node.data.metadata?.transcripts) {
+                allTranscripts.push(...node.data.metadata.transcripts);
+            }
+        });
+
+        // Create merged node with "large" importance
+        const mergedNodeInput: NodeInput = {
+            label: mergedLabel,
+            category: (mergedCategory as any) || 'System',
+            importance: 'large',
+            metadata: {
+                ...mergedMetadata,
+                transcripts: allTranscripts,
+                originalNodes: nodesToMerge.length
+            }
+        };
+
+        const mergedNode = this.addNode(mergedNodeInput);
+
+        // Transfer all edges from old nodes to merged node
+        const transferredEdges: Edge[] = [];
+        this.graph.edges.forEach(edge => {
+            if (nodeIds.includes(edge.source) && !nodeIds.includes(edge.target)) {
+                // Edge from merged node to external node
+                const newEdge = this.addEdge(mergedNode.id, edge.target, edge.label, edge.type, edge.animated);
+                transferredEdges.push(newEdge);
+            } else if (!nodeIds.includes(edge.source) && nodeIds.includes(edge.target)) {
+                // Edge from external node to merged node
+                const newEdge = this.addEdge(edge.source, mergedNode.id, edge.label, edge.type, edge.animated);
+                transferredEdges.push(newEdge);
+            }
+        });
+
+        // Remove old edges that connected the merged nodes to each other (internal edges)
+        this.graph.edges = this.graph.edges.filter(
+            edge => !(nodeIds.includes(edge.source) && nodeIds.includes(edge.target))
+        );
+
+        // Remove the old nodes
+        nodeIds.forEach(id => this.removeNode(id));
+
+        return mergedNode;
+    }
     
     /**
      * Calculate automatic layout position

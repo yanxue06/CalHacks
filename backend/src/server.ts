@@ -332,6 +332,43 @@ app.post('/api/graph/edge', (req: Request, res: Response): void => {
     }
 });
 
+// Merge multiple nodes into one
+app.post('/api/graph/merge', (req: Request, res: Response): void => {
+    try {
+        const { nodeIds, mergedLabel, mergedCategory } = req.body;
+        
+        if (!nodeIds || !Array.isArray(nodeIds) || nodeIds.length < 2) {
+            res.status(400).json({ error: 'At least 2 node IDs are required' });
+            return;
+        }
+        
+        if (!mergedLabel) {
+            res.status(400).json({ error: 'Merged label is required' });
+            return;
+        }
+
+        const mergedNode = graphService.mergeNodes(nodeIds, mergedLabel, mergedCategory);
+        
+        if (!mergedNode) {
+            res.status(400).json({ error: 'Failed to merge nodes' });
+            return;
+        }
+
+        // Broadcast update to all clients
+        io.emit('graph:update', graphService.getGraph());
+        io.emit('nodes:merged', { mergedNode, sourceNodeIds: nodeIds });
+        
+        res.json({ 
+            message: 'Nodes merged successfully',
+            mergedNode,
+            mergedFrom: nodeIds
+        });
+    } catch (error) {
+        console.error('Error merging nodes:', error);
+        res.status(500).json({ error: 'Failed to merge nodes' });
+    }
+});
+
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
     console.error(err.stack);
