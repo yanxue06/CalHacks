@@ -49,19 +49,13 @@ const Board = () => {
   const lastRefinementTime = useRef<number>(0);
   const lastConversationLength = useRef<number>(0);
   const refinementIntervalRef = useRef<NodeJS.Timeout | null>(null);
-<<<<<<< Updated upstream
   const saveDebounceRef = useRef<number | null>(null);
-  const MIN_PROCESS_INTERVAL = 15000; // 15 seconds between processing (4 API calls/min max)
-  const REFINEMENT_INTERVAL = 30000; // 30 seconds between refinements (2 API calls/min max)
-  const MIN_NEW_MESSAGES_FOR_REFINEMENT = 4; // Only refine if at least 4 new messages
-  const [collapsedMap, setCollapsedMap] = useState<Record<string, string[]>>({});
-  const COLLAPSE_ZOOM = 0.9; // collapse sooner so it's noticeable
-  const EXPAND_ZOOM = 1.0;   // expand when zoomed back near 1
-=======
   const MIN_PROCESS_INTERVAL = 20000; // 20 seconds between processing (3 API calls/min max)
   const REFINEMENT_INTERVAL = 60000; // 60 seconds between refinements (1 API call/min max)
   const MIN_NEW_MESSAGES_FOR_REFINEMENT = 6; // Only refine if at least 6 new messages
->>>>>>> Stashed changes
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, string[]>>({});
+  const COLLAPSE_ZOOM = 0.9; // collapse sooner so it's noticeable
+  const EXPAND_ZOOM = 1.0;   // expand when zoomed back near 1
 
   const fetchNodeSummary = useCallback(async (nodeId: string) => {
     // Check cache first
