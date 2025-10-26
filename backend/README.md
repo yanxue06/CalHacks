@@ -1,3 +1,22 @@
+# Database Setup (Prisma + Postgres)
+
+1. Install deps:
+```
+npm i @prisma/client && npm i -D prisma
+```
+
+2. Create `.env` with:
+```
+DATABASE_URL="postgresql://USER:PASS@localhost:5432/calhacks?schema=public"
+```
+
+3. Run:
+```
+npx prisma init
+npx prisma generate
+npx prisma migrate dev -n init_transcripts
+```
+
 # CalHacks Backend with Gemini AI
 
 A TypeScript Express backend with Gemini AI integration via OpenRouter.
