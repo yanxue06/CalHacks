@@ -21,6 +21,92 @@ export class GraphService {
     }
 
     /**
+     * Clear all nodes and edges from the graph
+     */
+    clear(): void {
+        this.graph = {
+            nodes: [],
+            edges: []
+        };
+        this.transcriptHistory = [];
+    }
+
+    /**
+     * Remove a specific node and all its edges
+     */
+    removeNode(nodeId: string): boolean {
+        const nodeIndex = this.graph.nodes.findIndex(node => node.id === nodeId);
+        if (nodeIndex === -1) return false;
+        
+        // Remove the node
+        this.graph.nodes.splice(nodeIndex, 1);
+        
+        // Remove all edges connected to this node
+        this.graph.edges = this.graph.edges.filter(edge => 
+            edge.source !== nodeId && edge.target !== nodeId
+        );
+        
+        return true;
+    }
+
+    /**
+     * Remove a specific edge
+     */
+    removeEdge(edgeId: string): boolean {
+        const edgeIndex = this.graph.edges.findIndex(edge => edge.id === edgeId);
+        if (edgeIndex === -1) return false;
+        
+        this.graph.edges.splice(edgeIndex, 1);
+        return true;
+    }
+
+    /**
+     * Update an existing node
+     */
+    updateNode(nodeId: string, updates: Partial<NodeInput>): boolean {
+        const nodeIndex = this.graph.nodes.findIndex(node => node.id === nodeId);
+        if (nodeIndex === -1) return false;
+        
+        this.graph.nodes[nodeIndex] = {
+            ...this.graph.nodes[nodeIndex],
+            ...updates,
+            id: nodeId // Ensure ID doesn't change
+        };
+        
+        return true;
+    }
+
+    /**
+     * Replace the entire graph with new data (for restructuring)
+     */
+    replaceGraph(newGraph: { nodes: NodeInput[], edges: any[] }): void {
+        this.graph = {
+            nodes: newGraph.nodes.map(node => ({
+                id: node.id || randomUUID(),
+                label: node.label,
+                category: node.category || 'service',
+                importance: node.importance || 'medium',
+                position: node.position || { x: 0, y: 0 },
+                data: {
+                    label: node.label,
+                    sourceRefs: node.data?.sourceRefs || [],
+                    confidence: node.data?.confidence || 0.8
+                }
+            })),
+            edges: newGraph.edges.map(edge => ({
+                id: edge.id || randomUUID(),
+                source: edge.source,
+                target: edge.target,
+                relationship: edge.relationship || 'relatesTo',
+                data: {
+                    sourceRefs: edge.data?.sourceRefs || [],
+                    confidence: edge.data?.confidence || 0.8
+                }
+            }))
+        };
+    }
+
+    /**
      * Add a transcript entry with speaker information
      */
     addTranscript(speaker: string, text: string): void {
@@ -145,7 +231,7 @@ export class GraphService {
      */
     addEdge(source: string, target: string, label?: string, type?: string, animated?: boolean): Edge {
         const newEdge: Edge = {
-            id: `e-${source}-${target}`,
+            id: `e-${source}-${target}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             source,
             target,
             label,
@@ -199,35 +285,6 @@ export class GraphService {
             x: (nodeCount % nodesPerRow) * spacingX + 50,
             y: Math.floor(nodeCount / nodesPerRow) * spacingY + 50
         };
-    }
-
-    removeNode(nodeId: string): boolean {
-        const index = this.graph.nodes.findIndex(n => n.id === nodeId);
-        if (index === -1) return false;
-
-        this.graph.nodes.splice(index, 1);
-        // Remove associated edges
-        this.graph.edges = this.graph.edges.filter(
-            e => e.source !== nodeId && e.target !== nodeId
-        );
-        return true;
-    }
-
-    /**
-     * Update a node's properties
-     */
-    updateNode(nodeId: string, updates: Partial<Node>): Node | null {
-        const node = this.graph.nodes.find(n => n.id === nodeId);
-        if (!node) return null;
-
-        // Deep merge for nested data object
-        if (updates.data) {
-            node.data = { ...node.data, ...updates.data };
-            delete updates.data;
-        }
-
-        Object.assign(node, updates);
-        return node;
     }
 
     /**

@@ -15,7 +15,7 @@ dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 1;
 
 // Initialize services
 const openRouterService = new OpenRouterService();
@@ -42,8 +42,13 @@ const upload = multer({
 // Initialize Socket.IO
 const io = new SocketIOServer(httpServer, {
     cors: {
-        origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-        methods: ['GET', 'POST']
+        origin: [
+            process.env.FRONTEND_URL || 'http://localhost:3000',
+            'http://localhost:8082',
+            'https://api.vapi.ai'
+        ],
+        methods: ['GET', 'POST'],
+        credentials: true
     }
 });
 
@@ -61,11 +66,317 @@ io.on('connection', (socket) => {
     socket.on('graph:request', () => {
         socket.emit('graph:update', graphService.getGraph());
     });
+
+    socket.on('process-transcript', async (data: { text: string }) => {
+        try {
+            console.log('📝 Received conversation via WebSocket:', data.text);
+            
+            const prompt = `You are building a HIERARCHICAL knowledge graph. Extract 3-5 KEY IDEAS ONLY from this conversation.
+
+CONVERSATION:
+${data.text}
+
+STRICT RULES:
+1. Extract ONLY 3-5 MAIN IDEAS (not every statement)
+2. NO REDUNDANCY - if two ideas are semantically similar, pick the most specific one
+3. Each node must be UNIQUE and NON-OVERLAPPING
+4. Create a HIERARCHY - parent concepts branch to child details
+5. Be EXTREMELY SPECIFIC with details (when, how, why, what)
+
+EXAMPLES:
+❌ BAD (redundant):
+- "User struggles with math"
+- "User has difficulty with addition"
+- "User finds addition challenging"
+→ These are all the same! Pick ONE: "User struggles to understand addition process"
+
+✅ GOOD (hierarchical, non-redundant):
+- "User struggles to understand addition process" (PARENT)
+  ├─ "Break down addition into step-by-step visual examples" (CHILD - solution)
+  └─ "Use physical objects like blocks to demonstrate combining quantities" (CHILD - implementation)
+
+WHAT TO EXTRACT:
+- Main problem/topic (1 node)
+- Key solutions or approaches (1-2 nodes)
+- Specific implementation details (1-2 nodes)
+
+WHAT TO SKIP:
+- Repetitive statements
+- Semantically duplicate ideas
+- Vague generalizations
+- Filler conversation
+
+EDGES - Create DIRECTED HIERARCHY:
+- Parent → Child (main idea branches to details)
+- Problem → Solution
+- Solution → Implementation
+- Concept → Example
+
+Return ONLY valid JSON (no markdown):
+{
+  "nodes": [
+    {"id": "main-topic", "label": "Main idea with full context", "category": "problem|solution|technology|plan|action"}
+  ],
+  "edges": [
+    {"source": "parent-id", "target": "child-id", "relationship": "branches to|solves|implements|exemplifies"}
+  ]
+}
+
+REMEMBER: 
+- MAXIMUM 5 nodes
+- NO semantic duplicates
+- CREATE hierarchy with directed edges
+- Each node should be a DISTINCT concept`;
+
+            const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
+            console.log('🤖 Gemini response:', response);
+
+            // Parse JSON response
+            let jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('❌ No JSON found in response');
+                socket.emit('error', { message: 'Failed to parse AI response' });
+                return;
+            }
+
+            const parsedData = JSON.parse(jsonMatch[0]);
+            console.log('✅ Parsed data:', parsedData);
+
+            // Add nodes and edges to graph (with deduplication check)
+            const addedNodes: any[] = [];
+            const addedEdges: any[] = [];
+            const currentGraph = graphService.getGraph();
+
+            if (parsedData.nodes && Array.isArray(parsedData.nodes)) {
+                for (const node of parsedData.nodes) {
+                    // Check if a similar node already exists (simple label similarity check)
+                    const isDuplicate = currentGraph.nodes.some(existingNode => {
+                        const existingLabel = existingNode.data.label.toLowerCase();
+                        const newLabel = node.label.toLowerCase();
+                        
+                        // Check for exact match or high similarity
+                        if (existingLabel === newLabel) return true;
+                        
+                        // Check if one label contains most words from the other (semantic similarity)
+                        const existingWords = existingLabel.split(/\s+/).filter(w => w.length > 3);
+                        const newWords = newLabel.split(/\s+/).filter(w => w.length > 3);
+                        const commonWords = existingWords.filter(w => newWords.includes(w));
+                        
+                        // If more than 60% of words overlap, consider it a duplicate
+                        const similarity = commonWords.length / Math.min(existingWords.length, newWords.length);
+                        return similarity > 0.6;
+                    });
+                    
+                    if (isDuplicate) {
+                        console.log(`⏭️ Skipping duplicate node: ${node.label}`);
+                        continue;
+                    }
+                    
+                    const nodeId = graphService.addNode({
+                        id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        label: node.label,
+                        category: node.category || 'service'
+                    });
+                    addedNodes.push({ id: nodeId, label: node.label });
+                }
+            }
+
+            if (parsedData.edges && Array.isArray(parsedData.edges)) {
+                for (const edge of parsedData.edges) {
+                    const edgeId = graphService.addEdge({
+                        source: edge.source,
+                        target: edge.target,
+                        relationship: edge.relationship || 'relatesTo'
+                    });
+                    addedEdges.push({ id: edgeId, ...edge });
+                }
+            }
+
+            // Broadcast graph update to all clients
+            io.emit('graph:update', graphService.getGraph());
+
+            console.log(`✅ Added ${addedNodes.length} nodes and ${addedEdges.length} edges`);
+            socket.emit('transcript-processed', {
+                success: true,
+                nodes: addedNodes,
+                edges: addedEdges
+            });
+        } catch (error) {
+            console.error('❌ Error processing transcript:', error);
+            socket.emit('error', { message: 'Failed to process transcript' });
+        }
+    });
+
+    socket.on('clear-graph', () => {
+        console.log('🗑️ Clearing graph via WebSocket');
+        graphService.clear();
+        io.emit('graph:update', graphService.getGraph());
+        console.log('✅ Graph cleared');
+    });
+
+    socket.on('remove-node', (data: { nodeId: string }) => {
+        console.log('🗑️ Removing node:', data.nodeId);
+        const success = graphService.removeNode(data.nodeId);
+        if (success) {
+            io.emit('graph:update', graphService.getGraph());
+            socket.emit('node-removed', { nodeId: data.nodeId, success: true });
+            console.log('✅ Node removed');
+        } else {
+            socket.emit('error', { message: 'Node not found' });
+        }
+    });
+
+    socket.on('remove-edge', (data: { edgeId: string }) => {
+        console.log('🗑️ Removing edge:', data.edgeId);
+        const success = graphService.removeEdge(data.edgeId);
+        if (success) {
+            io.emit('graph:update', graphService.getGraph());
+            socket.emit('edge-removed', { edgeId: data.edgeId, success: true });
+            console.log('✅ Edge removed');
+        } else {
+            socket.emit('error', { message: 'Edge not found' });
+        }
+    });
+
+    socket.on('restructure-graph', (data: { nodes: any[], edges: any[] }) => {
+        console.log('🔄 Restructuring graph with new data');
+        graphService.replaceGraph(data);
+        io.emit('graph:update', graphService.getGraph());
+        socket.emit('graph-restructured', { success: true });
+        console.log('✅ Graph restructured');
+    });
+
+    socket.on('refine-graph', async (data: { conversationContext: string }) => {
+        try {
+            console.log('🔍 Refining graph based on current state');
+            const currentGraph = graphService.getGraph();
+            
+            if (currentGraph.nodes.length === 0) {
+                console.log('⏭️ No nodes to refine');
+                return;
+            }
+
+            const refinementPrompt = `You are AGGRESSIVELY cleaning up a knowledge graph. Remove ALL redundancy and create clear hierarchy.
+
+CURRENT CONVERSATION CONTEXT:
+${data.conversationContext}
+
+CURRENT GRAPH:
+Nodes: ${JSON.stringify(currentGraph.nodes.map(n => ({ id: n.id, label: n.data.label })))}
+Edges: ${JSON.stringify(currentGraph.edges.map(e => ({ source: e.source, target: e.target, relationship: e.relationship })))}
+
+AGGRESSIVE CLEANUP RULES:
+1. REMOVE ALL semantically duplicate nodes (keep only the most specific one)
+2. REMOVE vague or generic nodes
+3. Target: 3-7 nodes MAXIMUM in final graph
+4. CREATE hierarchical edges between remaining nodes
+5. Ensure nodes form a TREE structure (parent → children)
+
+EXAMPLES OF DUPLICATES TO REMOVE:
+- "User struggles with math" + "User has difficulty with addition" → KEEP ONLY ONE
+- "Addition is combining numbers" + "Addition process" → KEEP ONLY ONE
+- "AI will explain" + "AI intends to explain" → REMOVE BOTH (meta-talk)
+
+WHAT TO KEEP:
+- Most specific, detailed version of each concept
+- Nodes that form a clear parent-child hierarchy
+- Actionable, concrete ideas
+
+WHAT TO REMOVE:
+- Semantic duplicates (similar meaning)
+- Vague generalizations
+- Meta-conversation nodes
+- Nodes without clear parent/child relationships
+
+Return ONLY valid JSON (no markdown):
+{
+  "nodesToRemove": ["id1", "id2", "id3"],
+  "nodesToUpdate": [
+    {"id": "existing-id", "newLabel": "More specific label", "category": "problem|solution|technology|plan|action"}
+  ],
+  "edgesToAdd": [
+    {"source": "parent-id", "target": "child-id", "relationship": "branches to|solves|implements"}
+  ]
+}
+
+BE AGGRESSIVE: Remove 50-70% of nodes if they're redundant!`;
+
+            const response = await openRouterService.chat(refinementPrompt, 'google/gemini-2.0-flash-exp:free');
+            console.log('🤖 Refinement response:', response);
+
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                console.error('❌ No JSON found in refinement response');
+                return;
+            }
+
+            const refinements = JSON.parse(jsonMatch[0]);
+            console.log('✅ Parsed refinements:', refinements);
+
+            // Apply refinements
+            let changesMade = false;
+
+            // Remove nodes
+            if (refinements.nodesToRemove && Array.isArray(refinements.nodesToRemove)) {
+                for (const nodeId of refinements.nodesToRemove) {
+                    if (graphService.removeNode(nodeId)) {
+                        console.log(`🗑️ Removed node: ${nodeId}`);
+                        changesMade = true;
+                    }
+                }
+            }
+
+            // Update nodes
+            if (refinements.nodesToUpdate && Array.isArray(refinements.nodesToUpdate)) {
+                for (const update of refinements.nodesToUpdate) {
+                    if (graphService.updateNode(update.id, { 
+                        label: update.newLabel,
+                        category: update.category 
+                    })) {
+                        console.log(`✏️ Updated node: ${update.id} -> ${update.newLabel}`);
+                        changesMade = true;
+                    }
+                }
+            }
+
+            // Add edges
+            if (refinements.edgesToAdd && Array.isArray(refinements.edgesToAdd)) {
+                for (const edge of refinements.edgesToAdd) {
+                    graphService.addEdge({
+                        source: edge.source,
+                        target: edge.target,
+                        relationship: edge.relationship || 'relatesTo'
+                    });
+                    console.log(`➕ Added edge: ${edge.source} -> ${edge.target}`);
+                    changesMade = true;
+                }
+            }
+
+            if (changesMade) {
+                io.emit('graph:update', graphService.getGraph());
+                socket.emit('graph-refined', { success: true });
+                console.log('✅ Graph refinement complete');
+            } else {
+                console.log('ℹ️ No refinements needed');
+            }
+
+        } catch (error) {
+            console.error('❌ Error refining graph:', error);
+            socket.emit('error', { message: 'Failed to refine graph' });
+        }
+    });
 });
 
 // Middleware
 app.use(helmet()); // Security headers
-app.use(cors()); // Enable CORS
+app.use(cors({
+    origin: [
+        process.env.FRONTEND_URL || 'http://localhost:3000',
+        'http://localhost:8082',
+        'https://api.vapi.ai'
+    ],
+    credentials: true
+})); // Enable CORS
 app.use(morgan('combined')); // Logging
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
@@ -100,6 +411,102 @@ app.post('/api/chat', async (req: Request, res: Response, next: NextFunction): P
 
         const response = await openRouterService.chat(message, model);
         res.json({ response });
+    } catch (error) {
+        next(error);
+    }
+});
+
+// Process text through Gemini and generate graph (for testing without Vapi)
+app.post('/api/process-text', async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+        const { text } = req.body;
+
+        if (!text) {
+            res.status(400).json({ error: 'Text is required' });
+            return;
+        }
+
+        console.log('📝 Processing text:', text);
+
+        // Create a prompt for Gemini to extract nodes and edges
+        const prompt = `You are analyzing a conversation and extracting structured information.
+
+Conversation: "${text}"
+
+Extract key nodes (topics, decisions, actions, systems) and relationships from this conversation.
+Return a JSON object with this structure:
+{
+  "nodes": [
+    {"label": "Node name", "type": "Decision|Action|System|Input|Output"}
+  ],
+  "edges": [
+    {"source": "Source node label", "target": "Target node label", "label": "relationship"}
+  ]
+}
+
+Node types:
+- Decision: A decision point or choice made
+- Action: A task or action to be taken
+- System: A service, database, or system component
+- Input: Starting point or initial topic
+- Output: Result or outcome
+
+Return ONLY valid JSON, no other text.`;
+
+        const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
+        
+        console.log('🤖 Gemini response:', response);
+
+        // Parse the JSON response
+        let graphData;
+        try {
+            // Try to extract JSON from the response
+            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                graphData = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('No JSON found in response');
+            }
+        } catch (parseError) {
+            console.error('Failed to parse Gemini response:', parseError);
+            res.status(500).json({ error: 'Failed to parse AI response', details: response });
+            return;
+        }
+
+        // Add nodes and edges to the graph
+        const { nodes = [], edges = [] } = graphData;
+        const nodeIdMap: Record<string, string> = {};
+
+        // Add nodes
+        const addedNodes = nodes.map((node: any) => {
+            const newNode = graphService.addNode({
+                label: node.label,
+                category: node.type || 'System',
+                metadata: { source: 'manual-text' }
+            });
+            nodeIdMap[node.label] = newNode.id;
+            return newNode;
+        });
+
+        // Add edges
+        const addedEdges = edges.map((edge: any) => {
+            const sourceId = nodeIdMap[edge.source] || edge.source;
+            const targetId = nodeIdMap[edge.target] || edge.target;
+            return graphService.addEdge(sourceId, targetId, edge.label);
+        });
+
+        // Broadcast to all connected clients
+        io.emit('graph:update', graphService.getGraph());
+        io.emit('graph:nodeAdded', { nodes: addedNodes, edges: addedEdges });
+
+        console.log(`✅ Added ${addedNodes.length} nodes and ${addedEdges.length} edges`);
+
+        res.json({
+            success: true,
+            nodes: addedNodes,
+            edges: addedEdges,
+            geminiResponse: response
+        });
     } catch (error) {
         next(error);
     }

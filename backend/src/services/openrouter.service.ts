@@ -7,6 +7,8 @@ export class OpenRouterService {
 
     constructor() {
         this.apiKey = process.env.OPENROUTER_API_KEY || '';
+        console.log('🔑 OpenRouter API Key loaded:', this.apiKey ? `${this.apiKey.substring(0, 10)}...` : 'NOT FOUND');
+        console.log('🔍 All env vars:', Object.keys(process.env).filter(k => k.includes('OPENROUTER')));
         if (!this.apiKey) {
             console.warn('⚠️  OPENROUTER_API_KEY not found in environment variables');
         }

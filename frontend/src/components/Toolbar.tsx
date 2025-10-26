@@ -1,5 +1,9 @@
 import { Button } from '@/components/ui/button';
+<<<<<<< HEAD
 import { Play, Square, Save, Download, Maximize2, Upload } from 'lucide-react';
+=======
+import { Play, Square, Save, Download, Maximize2, Trash2 } from 'lucide-react';
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
 import { RecordingStatus } from '@/types/diagram';
 import { useRef } from 'react';
 
@@ -10,7 +14,11 @@ interface ToolbarProps {
   onSave: () => void;
   onExport: () => void;
   onRecenter: () => void;
+<<<<<<< HEAD
   onUploadAudio?: (file: File) => void;
+=======
+  onClear: () => void;
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
 }
 
 export const Toolbar = ({
@@ -20,7 +28,11 @@ export const Toolbar = ({
   onSave,
   onExport,
   onRecenter,
+<<<<<<< HEAD
   onUploadAudio
+=======
+  onClear
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
 }: ToolbarProps) => {
   const isRecording = status === 'listening' || status === 'processing' || status === 'finalizing';
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -114,6 +126,16 @@ export const Toolbar = ({
       >
         <Maximize2 className="w-4 h-4" />
         Recenter
+      </Button>
+
+      <Button
+        onClick={onClear}
+        variant="outline"
+        size="sm"
+        className="gap-2"
+      >
+        <Trash2 className="w-4 h-4" />
+        Clear
       </Button>
     </div>
   );

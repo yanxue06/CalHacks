@@ -18,7 +18,12 @@ import { DiagramNode as CustomNode } from '@/components/DiagramNode';
 import { Toolbar } from '@/components/Toolbar';
 import { StatusBanner } from '@/components/StatusBanner';
 import { DetailsSidebar } from '@/components/DetailsSidebar';
+<<<<<<< HEAD
 import { VoiceRecordingService } from '@/services/voiceRecordingService';
+=======
+import { WebSocketService } from '@/services/websocket.service';
+import { VapiService } from '@/services/vapi.service';
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
 import { DiagramNode, DiagramEdge, Decision, ActionItem, RecordingStatus } from '@/types/diagram';
 import { toast } from 'sonner';
 import { toPng } from 'html-to-image';
@@ -44,11 +49,61 @@ const Board = () => {
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   
+<<<<<<< HEAD
   const voiceService = useRef(new VoiceRecordingService());
+=======
+  const wsService = useRef(new WebSocketService());
+  const vapiService = useRef(new VapiService());
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
+  const lastProcessedTime = useRef<number>(0);
+  const lastRefinementTime = useRef<number>(0);
+  const refinementIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const MIN_PROCESS_INTERVAL = 5000; // 5 seconds between processing
+  const REFINEMENT_INTERVAL = 10000; // 10 seconds between refinements
+
+  const handleTranscript = useCallback((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => {
+    console.log('📝 Received conversation history from Vapi:', conversationHistory);
+    
+    // Only process if we have substantial conversation (at least 2 exchanges: 1 user + 1 AI)
+    if (conversationHistory.length < 2) {
+      console.log('⏭️ Skipping - need at least 2 conversation exchanges');
+      return;
+    }
+    
+    // Rate limiting: prevent processing too frequently
+    const now = Date.now();
+    const timeSinceLastProcess = now - lastProcessedTime.current;
+    
+    if (timeSinceLastProcess < MIN_PROCESS_INTERVAL) {
+      console.log(`⏱️ Rate limited: waiting ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s before next process`);
+      // Don't show toast for rate limiting - it's too noisy
+      return;
+    }
+    
+    // Update last processed time
+    lastProcessedTime.current = now;
+    
+    // Format conversation for backend
+    const formattedConversation = conversationHistory
+      .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+      .join('\n');
+    
+    // Send full conversation to backend via WebSocket
+    wsService.current.sendTranscript(formattedConversation);
+    
+    console.log('📤 Sent conversation to backend for processing');
+  }, []);
 
   useEffect(() => {
+<<<<<<< HEAD
     voiceService.current.connect({
+=======
+    // Set transcript callback for Vapi
+    vapiService.current.setTranscriptCallback(handleTranscript);
+
+    wsService.current.connect({
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
       onNode: (node: DiagramNode) => {
         const flowNode: Node = {
           id: node.id,
@@ -76,10 +131,27 @@ const Board = () => {
           target: edge.target,
           type: 'smoothstep',
           animated: true,
-          style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 },
+          label: edge.type || 'relates to', // Show relationship type as label
+          labelStyle: { 
+            fill: 'hsl(var(--primary))', 
+            fontWeight: 600,
+            fontSize: 12
+          },
+          labelBgStyle: { 
+            fill: 'hsl(var(--background))', 
+            fillOpacity: 0.9 
+          },
+          labelBgPadding: [8, 4] as [number, number],
+          labelBgBorderRadius: 4,
+          style: { 
+            stroke: 'hsl(var(--primary))', 
+            strokeWidth: 3 // Thicker for better visibility
+          },
           markerEnd: {
             type: MarkerType.ArrowClosed,
             color: 'hsl(var(--primary))',
+            width: 25,
+            height: 25,
           },
           data: {
             sourceRefs: edge.data.sourceRefs,
@@ -87,16 +159,14 @@ const Board = () => {
           }
         };
         
-        setEdges((eds) => [...eds, flowEdge]);
-      },
-      onFinalize: ({ decisions: newDecisions, actionItems: newActionItems }) => {
-        setDecisions(newDecisions);
-        setActionItems(newActionItems);
-        setStatus('idle');
-        toast.success('Recording finalized', {
-          description: `Found ${newDecisions.length} decisions and ${newActionItems.length} action items`
+        setEdges((eds) => {
+          // Check if edge already exists to prevent duplicates
+          const exists = eds.some(e => e.id === flowEdge.id);
+          if (exists) return eds;
+          return [...eds, flowEdge];
         });
       },
+<<<<<<< HEAD
       onTranscription: (transcription) => {
         setTranscriptions(prev => [...prev, {
           id: transcription.id,
@@ -111,16 +181,42 @@ const Board = () => {
       },
       onSessionUpdate: (session) => {
         console.log('Session updated:', session);
+=======
+      onTranscript: (data) => {
+        console.log('📝 Transcript:', data);
+        // Could show this in the UI if desired
+      },
+      onConversationStarted: () => {
+        setStatus('listening');
+        toast.info('Listening...', {
+          description: 'Vapi is now transcribing your audio'
+        });
+      },
+      onConversationEnded: () => {
+        setStatus('finalizing');
+        setTimeout(() => {
+          setStatus('idle');
+          toast.success('Recording complete', {
+            description: 'Your conversation has been processed'
+          });
+        }, 1000);
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
       }
     });
 
     return () => {
+<<<<<<< HEAD
       voiceService.current.disconnect();
+=======
+      wsService.current.disconnect();
+      vapiService.current.cleanup();
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
     };
-  }, [setNodes, setEdges, reactFlowInstance]);
+  }, [setNodes, setEdges, reactFlowInstance, handleTranscript]);
 
   const handleStartRecording = useCallback(async () => {
     try {
+<<<<<<< HEAD
       setStatus('listening');
       setDecisions([]);
       setActionItems([]);
@@ -136,17 +232,63 @@ const Board = () => {
         description: 'Please check your connection to the backend.'
       });
       setStatus('idle');
+=======
+      setStatus('processing');
+      setDecisions([]);
+      setActionItems([]);
+      
+      await vapiService.current.startRecording();
+      
+      // Start refinement interval - refine graph every 10 seconds during recording
+      refinementIntervalRef.current = setInterval(() => {
+        const conversationHistory = vapiService.current.getConversationHistory();
+        if (conversationHistory && conversationHistory.length > 0) {
+          console.log('🔍 Triggering periodic graph refinement');
+          wsService.current.refineGraph(conversationHistory);
+        }
+      }, REFINEMENT_INTERVAL);
+      
+      toast.success('Recording started', {
+        description: 'Speak naturally and Vapi will transcribe and analyze your conversation'
+      });
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      setStatus('idle');
+      toast.error('Failed to start recording', {
+        description: error instanceof Error ? error.message : 'Unknown error occurred'
+      });
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
     }
   }, []);
 
   const handleStopRecording = useCallback(async () => {
     try {
       setStatus('finalizing');
+<<<<<<< HEAD
       await voiceService.current.stopRecording();
     } catch (error) {
       console.error('Failed to stop recording:', error);
       toast.error('Failed to stop recording', {
         description: 'Please try again.'
+=======
+      
+      // Stop refinement interval
+      if (refinementIntervalRef.current) {
+        clearInterval(refinementIntervalRef.current);
+        refinementIntervalRef.current = null;
+        console.log('⏹️ Stopped refinement interval');
+      }
+      
+      await vapiService.current.stopRecording();
+      
+      toast.info('Processing...', {
+        description: 'Finalizing your conversation analysis'
+      });
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      toast.error('Error stopping recording', {
+        description: 'Recording may have already stopped'
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
       });
       setStatus('idle');
     }
@@ -207,6 +349,15 @@ const Board = () => {
     toast.info('View recentered');
   }, [reactFlowInstance]);
 
+  const handleClear = useCallback(() => {
+    wsService.current.clearGraph();
+    setNodes([]);
+    setEdges([]);
+    toast.success('Graph cleared', {
+      description: 'All nodes and edges removed'
+    });
+  }, [setNodes, setEdges]);
+
   const handleNodeClick = useCallback((_event: React.MouseEvent, node: Node) => {
     const diagramNode: DiagramNode = {
       id: node.id,
@@ -256,6 +407,7 @@ const Board = () => {
 
   return (
     <div className="flex flex-col h-screen bg-background">
+<<<<<<< HEAD
         <Toolbar
           status={status}
           onStartRecording={handleStartRecording}
@@ -265,6 +417,17 @@ const Board = () => {
           onRecenter={handleRecenter}
           onUploadAudio={handleUploadAudio}
         />
+=======
+      <Toolbar
+        status={status}
+        onStartRecording={handleStartRecording}
+        onStopRecording={handleStopRecording}
+        onSave={handleSave}
+        onExport={handleExport}
+        onRecenter={handleRecenter}
+        onClear={handleClear}
+      />
+>>>>>>> 5ed7b8c6c818a99b5f764f278637967d1caf8350
       
       <StatusBanner status={status} />
 
