@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import { Node, Edge, Graph, NodeInput, NodeImportance } from '../types';
+import { Node, Edge, Graph, NodeInput, NodeImportance, NodeCategory } from '../types';
 
 export class GraphService {
     private graph: Graph;
@@ -79,29 +79,34 @@ export class GraphService {
     /**
      * Replace the entire graph with new data (for restructuring)
      */
-    replaceGraph(newGraph: { nodes: NodeInput[], edges: any[] }): void {
+    replaceGraph(newGraph: { nodes: any[], edges: any[] }): void {
         this.graph = {
-            nodes: newGraph.nodes.map(node => ({
-                id: node.id || randomUUID(),
-                label: node.label,
-                category: node.category || 'service',
-                importance: node.importance || 'medium',
-                position: node.position || { x: 0, y: 0 },
-                data: {
-                    label: node.label,
-                    sourceRefs: node.data?.sourceRefs || [],
-                    confidence: node.data?.confidence || 0.8
-                }
-            })),
+            nodes: newGraph.nodes.map(node => {
+                const importance: NodeImportance = node.importance || 'medium';
+                const size = this.getSizeForImportance(importance);
+
+                return {
+                    id: node.id || randomUUID(),
+                    type: node.type || node.category?.toLowerCase() || 'default',
+                    position: node.position || { x: 0, y: 0 },
+                    size,
+                    data: {
+                        label: node.label || node.data?.label,
+                        category: (node.category || node.data?.category || 'System') as NodeCategory,
+                        timestamp: node.data?.timestamp || new Date().toISOString(),
+                        importance,
+                        metadata: node.metadata || node.data?.metadata
+                    }
+                };
+            }),
             edges: newGraph.edges.map(edge => ({
                 id: edge.id || randomUUID(),
                 source: edge.source,
                 target: edge.target,
-                relationship: edge.relationship || 'relatesTo',
-                data: {
-                    sourceRefs: edge.data?.sourceRefs || [],
-                    confidence: edge.data?.confidence || 0.8
-                }
+                label: edge.label,
+                relationship: edge.relationship,
+                type: edge.type || 'smoothstep',
+                animated: edge.animated || false
             }))
         };
     }
@@ -228,15 +233,39 @@ export class GraphService {
 
     /**
      * Add an edge between two nodes (React Flow compatible)
+     * Supports both object and individual parameter calling patterns
      */
-    addEdge(source: string, target: string, label?: string, type?: string, animated?: boolean): Edge {
+    addEdge(
+        sourceOrEdge: string | { source: string; target: string; label?: string; relationship?: string; type?: string; animated?: boolean },
+        target?: string,
+        label?: string,
+        type?: string,
+        animated?: boolean
+    ): Edge {
+        let edgeData: { source: string; target: string; label?: string; relationship?: string; type?: string; animated?: boolean };
+
+        // Handle object parameter
+        if (typeof sourceOrEdge === 'object') {
+            edgeData = sourceOrEdge;
+        } else {
+            // Handle individual parameters
+            edgeData = {
+                source: sourceOrEdge,
+                target: target!,
+                label,
+                type,
+                animated
+            };
+        }
+
         const newEdge: Edge = {
-            id: `e-${source}-${target}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            source,
-            target,
-            label,
-            type: type || 'smoothstep', // Default to smoothstep for nice curves
-            animated: animated || false
+            id: `e-${edgeData.source}-${edgeData.target}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            source: edgeData.source,
+            target: edgeData.target,
+            label: edgeData.label,
+            relationship: edgeData.relationship,
+            type: edgeData.type || 'smoothstep', // Default to smoothstep for nice curves
+            animated: edgeData.animated || false
         };
 
         this.graph.edges.push(newEdge);

@@ -52,65 +52,85 @@ io.on('connection', (socket) => {
         try {
             console.log('📝 Received conversation via WebSocket:', data.text);
             
-            const prompt = `You are building a HIERARCHICAL knowledge graph. Extract 3-5 KEY IDEAS ONLY from this conversation.
+            const prompt = `You are building a HIERARCHICAL knowledge graph. Extract 2-4 KEY IDEAS ONLY from this conversation.
 
 CONVERSATION:
 ${data.text}
 
-STRICT RULES:
-1. Extract ONLY 3-5 MAIN IDEAS (not every statement)
-2. NO REDUNDANCY - if two ideas are semantically similar, pick the most specific one
-3. Each node must be UNIQUE and NON-OVERLAPPING
-4. Create a HIERARCHY - parent concepts branch to child details
-5. Be EXTREMELY SPECIFIC with details (when, how, why, what)
+CRITICAL RULES:
+1. Extract ONLY 2-4 MAIN IDEAS (the absolute core concepts)
+2. IGNORE ALL META-CONVERSATION (anything about AI, assistance, explanations, etc.)
+3. ONLY extract ACTUAL CONTENT (the topic being discussed, not the discussion itself)
+4. NO REDUNDANCY - if similar, pick the most specific one
+5. Create PARENT→CHILD hierarchy with directed edges
 
-EXAMPLES:
-❌ BAD (redundant):
-- "User struggles with math"
-- "User has difficulty with addition"
-- "User finds addition challenging"
-→ These are all the same! Pick ONE: "User struggles to understand addition process"
+❌ NEVER EXTRACT (Meta-conversation):
+- "AI expresses inability..."
+- "User seeks explanation..."
+- "AI will provide assistance..."
+- "User asks for help..."
+- Anything about the conversation process itself
 
-✅ GOOD (hierarchical, non-redundant):
-- "User struggles to understand addition process" (PARENT)
-  ├─ "Break down addition into step-by-step visual examples" (CHILD - solution)
-  └─ "Use physical objects like blocks to demonstrate combining quantities" (CHILD - implementation)
+✅ ALWAYS EXTRACT (Actual content):
+- The actual topic/problem (e.g., "Understanding addition with numbers")
+- Specific solutions (e.g., "Use 3 apples + 2 apples example")
+- Implementation details (e.g., "Visualize combining physical objects")
 
-WHAT TO EXTRACT:
-- Main problem/topic (1 node)
-- Key solutions or approaches (1-2 nodes)
-- Specific implementation details (1-2 nodes)
+EXAMPLE:
+❌ BAD: "User seeks explanation of addition" (meta-talk)
+✅ GOOD: "Addition combines quantities to find total" (actual content)
 
-WHAT TO SKIP:
-- Repetitive statements
-- Semantically duplicate ideas
-- Vague generalizations
-- Filler conversation
+❌ BAD: "AI provides assistance with math" (meta-talk)
+✅ GOOD: "Use apple example: 3 + 2 = 5 total apples" (actual content)
 
-EDGES - Create DIRECTED HIERARCHY:
-- Parent → Child (main idea branches to details)
-- Problem → Solution
-- Solution → Implementation
-- Concept → Example
+HIERARCHY STRUCTURE:
+Main Concept (PARENT)
+  ├─ Specific Example (CHILD)
+  └─ Implementation Method (CHILD)
 
 Return ONLY valid JSON (no markdown):
 {
   "nodes": [
-    {"id": "main-topic", "label": "Main idea with full context", "category": "problem|solution|technology|plan|action"}
+    {"id": "kebab-case-id", "label": "Specific content with details", "category": "concept|example|method|tool"}
   ],
   "edges": [
-    {"source": "parent-id", "target": "child-id", "relationship": "branches to|solves|implements|exemplifies"}
+    {"source": "parent-id", "target": "child-id", "relationship": "exemplifies|implements|uses"}
   ]
 }
 
 REMEMBER: 
-- MAXIMUM 5 nodes
-- NO semantic duplicates
-- CREATE hierarchy with directed edges
-- Each node should be a DISTINCT concept`;
+- MAXIMUM 4 nodes
+- ZERO meta-conversation
+- ONLY actual topic content
+- Clear parent→child hierarchy`;
 
-            const response = await openRouterService.chat(prompt, 'google/gemini-2.0-flash-exp:free');
+            // Try multiple free models in case one is rate limited
+            let response;
+            const freeModels = [
+                'google/gemini-2.0-flash-exp:free',
+                'google/gemini-flash-1.5:free',
+                'meta-llama/llama-3.2-3b-instruct:free'
+            ];
+            
+            for (const model of freeModels) {
+                try {
+                    console.log(`🤖 Trying model: ${model}`);
+                    response = await openRouterService.chat(prompt, model);
+                    break; // Success, exit loop
+                } catch (error) {
+                    console.warn(`⚠️ Model ${model} failed, trying next...`);
+                    if (model === freeModels[freeModels.length - 1]) {
+                        throw error; // Last model, throw error
+                    }
+                }
+            }
             console.log('🤖 Gemini response:', response);
+
+            if (!response) {
+                console.error('❌ No response from model');
+                socket.emit('error', { message: 'Failed to get response from model' });
+                return;
+            }
 
             // Parse JSON response
             let jsonMatch = response.match(/\{[\s\S]*\}/);
@@ -139,9 +159,9 @@ REMEMBER:
                         if (existingLabel === newLabel) return true;
                         
                         // Check if one label contains most words from the other (semantic similarity)
-                        const existingWords = existingLabel.split(/\s+/).filter(w => w.length > 3);
-                        const newWords = newLabel.split(/\s+/).filter(w => w.length > 3);
-                        const commonWords = existingWords.filter(w => newWords.includes(w));
+                        const existingWords = existingLabel.split(/\s+/).filter((w: string) => w.length > 3);
+                        const newWords = newLabel.split(/\s+/).filter((w: string) => w.length > 3);
+                        const commonWords = existingWords.filter((w: string) => newWords.includes(w));
                         
                         // If more than 60% of words overlap, consider it a duplicate
                         const similarity = commonWords.length / Math.min(existingWords.length, newWords.length);
@@ -154,7 +174,7 @@ REMEMBER:
                     }
                     
                     const nodeId = graphService.addNode({
-                        id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                        //id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         label: node.label,
                         category: node.category || 'service'
                     });
@@ -184,7 +204,9 @@ REMEMBER:
             });
         } catch (error) {
             console.error('❌ Error processing transcript:', error);
-            socket.emit('error', { message: 'Failed to process transcript' });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error('❌ Error details:', errorMessage);
+            socket.emit('error', { message: `Failed to process transcript: ${errorMessage}` });
         }
     });
 
@@ -282,10 +304,25 @@ Return ONLY valid JSON (no markdown):
 
 BE AGGRESSIVE: Remove 50-70% of nodes if they're redundant!`;
 
-            const response = await openRouterService.chat(refinementPrompt, 'google/gemini-2.0-flash-exp:free');
+            // Try multiple free models for refinement
+            let response;
+            const freeModels = [
+                'google/gemini-2.0-flash-exp:free',
+                'google/gemini-flash-1.5:free',
+                'meta-llama/llama-3.2-3b-instruct:free'
+            ];
+            
+            for (const model of freeModels) {
+                try {
+                    response = await openRouterService.chat(refinementPrompt, model);
+                    break;
+                } catch (error) {
+                    if (model === freeModels[freeModels.length - 1]) throw error;
+                }
+            }
             console.log('🤖 Refinement response:', response);
 
-            const jsonMatch = response.match(/\{[\s\S]*\}/);
+            const jsonMatch = response?.match(/\{[\s\S]*\}/);
             if (!jsonMatch) {
                 console.error('❌ No JSON found in refinement response');
                 return;

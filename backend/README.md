@@ -94,7 +94,7 @@ curl -X POST http://localhost:5000/api/chat \
 ### Get Available Models
 
 ```bash
-curl http://localhost:5000/api/models
+curl http://localhost:5001/api/models
 ```
 
 ## Available Gemini Models
