@@ -16,6 +16,7 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 import { DiagramNode as CustomNode } from '@/components/DiagramNode';
 import { Toolbar } from '@/components/Toolbar';
+import { BottomToolbar } from '@/components/BottomToolbar';
 import { StatusBanner } from '@/components/StatusBanner';
 import { DetailsSidebar } from '@/components/DetailsSidebar';
 import { WebSocketService } from '@/services/websocket.service';
@@ -48,9 +49,13 @@ const Board = () => {
   const lastRefinementTime = useRef<number>(0);
   const lastConversationLength = useRef<number>(0);
   const refinementIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const saveDebounceRef = useRef<number | null>(null);
   const MIN_PROCESS_INTERVAL = 15000; // 15 seconds between processing (4 API calls/min max)
   const REFINEMENT_INTERVAL = 30000; // 30 seconds between refinements (2 API calls/min max)
   const MIN_NEW_MESSAGES_FOR_REFINEMENT = 4; // Only refine if at least 4 new messages
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, string[]>>({});
+  const COLLAPSE_ZOOM = 0.9; // collapse sooner so it's noticeable
+  const EXPAND_ZOOM = 1.0;   // expand when zoomed back near 1
 
   const fetchNodeSummary = useCallback(async (nodeId: string) => {
     // Check cache first
@@ -140,6 +145,19 @@ const Board = () => {
   }, []);
 
   useEffect(() => {
+    // Load from local storage on first mount
+    try {
+      const raw = localStorage.getItem('confab-graph');
+      if (raw) {
+        const parsed = JSON.parse(raw) as { nodes?: Node[]; edges?: Edge[] };
+        if (parsed.nodes && Array.isArray(parsed.nodes)) setNodes(parsed.nodes);
+        if (parsed.edges && Array.isArray(parsed.edges)) setEdges(parsed.edges);
+        console.log('📦 Loaded graph from local storage');
+      }
+    } catch (e) {
+      console.warn('Failed to load graph from local storage');
+    }
+
     // Set transcript callback for Vapi
     vapiService.current.setTranscriptCallback(handleTranscript);
 
@@ -233,6 +251,23 @@ const Board = () => {
     };
   }, [setNodes, setEdges, reactFlowInstance, handleTranscript]);
 
+  // Persist nodes/edges to local storage (debounced)
+  useEffect(() => {
+    if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    saveDebounceRef.current = window.setTimeout(() => {
+      try {
+        const payload = JSON.stringify({ nodes, edges });
+        localStorage.setItem('confab-graph', payload);
+        // console.debug('💾 Graph saved');
+      } catch (e) {
+        console.warn('Failed to save graph to local storage');
+      }
+    }, 300);
+    return () => {
+      if (saveDebounceRef.current) window.clearTimeout(saveDebounceRef.current);
+    };
+  }, [nodes, edges]);
+
   const handleStartRecording = useCallback(async () => {
     try {
       setStatus('processing');
@@ -304,10 +339,34 @@ const Board = () => {
   }, []);
 
   const handleSave = useCallback(() => {
+    try {
+      const payload = JSON.stringify({ nodes, edges });
+      localStorage.setItem('confab-graph', payload);
+    } catch (e) {
+      // ignore
+    }
     toast.success('Diagram saved', {
       description: 'Your diagram has been saved successfully'
     });
-  }, []);
+  }, [nodes, edges]);
+
+  const handleQuickAddNode = useCallback((opts: { label: string; color: string }) => {
+    const id = `manual-${Date.now()}`;
+    const newNode: Node = {
+      id,
+      type: 'custom',
+      position: { x: (Math.random() * 600) + 100, y: (Math.random() * 400) + 100 },
+      data: {
+        label: opts.label,
+        nodeType: 'service',
+        sourceRefs: [],
+        confidence: 0.95,
+        color: opts.color
+      }
+    };
+    setNodes((nds) => [...nds, newNode]);
+    // Optionally broadcast to backend as a manual add via restructure, skipped for now
+  }, [setNodes]);
 
   const handleExport = useCallback(async () => {
     if (!reactFlowWrapper.current) return;
@@ -343,6 +402,7 @@ const Board = () => {
     wsService.current.clearGraph();
     setNodes([]);
     setEdges([]);
+    try { localStorage.removeItem('confab-graph'); } catch {}
     toast.success('Graph cleared', {
       description: 'All nodes and edges removed'
     });
@@ -399,6 +459,141 @@ const Board = () => {
     );
   }, [setEdges]);
 
+  // Copy/paste selected nodes
+  const clipboardRef = useRef<Node[] | null>(null);
+  const handleCopy = useCallback(() => {
+    const selected = nodes.filter(n => (n as any).selected);
+    if (selected.length === 0) return;
+    clipboardRef.current = selected.map(n => ({ ...n, position: { ...n.position } }));
+    toast.info(`Copied ${selected.length} node(s)`);
+  }, [nodes]);
+
+  const handlePaste = useCallback(() => {
+    if (!clipboardRef.current || clipboardRef.current.length === 0) return;
+    const dx = 30, dy = 30;
+    const cloned = clipboardRef.current.map(n => ({
+      ...n,
+      id: `${n.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,
+      position: { x: n.position.x + dx, y: n.position.y + dy },
+      selected: false
+    }));
+    setNodes(nds => [...nds, ...cloned]);
+    toast.success(`Pasted ${cloned.length} node(s)`);
+  }, [setNodes]);
+
+  // Keyboard shortcuts for copy/paste
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        handleCopy();
+      } else if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault();
+        handlePaste();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleCopy, handlePaste]);
+
+  // --- Zoom-based grouping (collapse/expand many small nodes under a parent) ---
+  const buildChildrenMap = useCallback((): Record<string, string[]> => {
+    const map: Record<string, string[]> = {};
+    edges.forEach((e) => {
+      (map[e.source] ||= []).push(e.target);
+    });
+    return map;
+  }, [edges]);
+
+  const collapseParent = useCallback((parentId: string, childIds: string[]) => {
+    setNodes((nds) => {
+      const childSet = new Set(childIds);
+      const parent = nds.find(n => n.id === parentId);
+      const children = nds.filter(n => childSet.has(n.id));
+      const centroid = children.length > 0
+        ? {
+            x: children.reduce((a, n) => a + n.position.x, 0) / children.length,
+            y: children.reduce((a, n) => a + n.position.y, 0) / children.length,
+          }
+        : parent?.position || { x: 0, y: 0 };
+
+      const clusterNode: Node = {
+        id: `cluster-${parentId}`,
+        type: 'custom',
+        position: { x: centroid.x, y: centroid.y },
+        data: {
+          label: `Group (${childIds.length})`,
+          nodeType: 'service',
+          sourceRefs: [],
+          confidence: 1,
+        },
+      } as any;
+
+      const next = nds.map(n => childSet.has(n.id) ? { ...n, hidden: true } : n);
+      // Avoid duplicating cluster if already present
+      if (!next.some(n => n.id === clusterNode.id)) next.push(clusterNode);
+      return next;
+    });
+
+    setEdges((eds) => {
+      const childSet = new Set(childIds);
+      const next = eds.map(e => (e.source === parentId && childSet.has(e.target)) ? { ...e, hidden: true } : e);
+      const clusterEdgeId = `cluster-edge-${parentId}`;
+      if (!next.some(e => e.id === clusterEdgeId)) {
+        next.push({
+          id: clusterEdgeId,
+          source: parentId,
+          target: `cluster-${parentId}`,
+          type: 'smoothstep',
+          animated: true,
+          style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 }
+        } as any);
+      }
+      return next;
+    });
+
+    setCollapsedMap((m) => ({ ...m, [parentId]: childIds }));
+  }, [setNodes, setEdges]);
+
+  const expandParent = useCallback((parentId: string) => {
+    const childIds = collapsedMap[parentId];
+    if (!childIds) return;
+    setNodes((nds) => nds
+      .filter(n => n.id !== `cluster-${parentId}`)
+      .map(n => childIds.includes(n.id) ? { ...n, hidden: false } : n)
+    );
+    setEdges((eds) => eds
+      .filter(e => e.id !== `cluster-edge-${parentId}`)
+      .map(e => (e.source === parentId && childIds.includes(e.target)) ? { ...e, hidden: false } : e)
+    );
+    setCollapsedMap((m) => {
+      const { [parentId]: _, ...rest } = m;
+      return rest;
+    });
+  }, [collapsedMap]);
+
+  const handleMove = useCallback((_evt: any, viewport: { zoom: number }) => {
+    const zoom = viewport?.zoom ?? reactFlowInstance?.getZoom?.() ?? 1;
+    const childrenMap = buildChildrenMap();
+    if (zoom < COLLAPSE_ZOOM) {
+      Object.entries(childrenMap).forEach(([parentId, list]) => {
+        if (list.length >= 6 && !collapsedMap[parentId]) {
+          collapseParent(parentId, list);
+        }
+      });
+    } else if (zoom >= EXPAND_ZOOM) {
+      Object.keys(collapsedMap).forEach(expandParent);
+    }
+  }, [reactFlowInstance, buildChildrenMap, collapsedMap, collapseParent, expandParent]);
+
+  // Also recheck on nodes/edges change using current zoom
+  useEffect(() => {
+    const zoom = reactFlowInstance?.getZoom?.() ?? 1;
+    handleMove(undefined as any, { zoom });
+  }, [nodes, edges]);
+
   return (
     <div className="flex flex-col h-screen bg-background">
       <Toolbar
@@ -421,6 +616,7 @@ const Board = () => {
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={handleConnect}
+            onMove={handleMove}
             onNodeClick={handleNodeClick}
             onEdgeClick={handleEdgeClick}
             onPaneClick={handlePaneClick}
@@ -439,6 +635,8 @@ const Board = () => {
             <Background gap={20} size={1} color="hsl(var(--border))" />
             <Controls className="!bg-card !border-border" />
           </ReactFlow>
+
+          <BottomToolbar onQuickAddNode={handleQuickAddNode} />
         </div>
 
         <DetailsSidebar

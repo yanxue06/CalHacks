@@ -1,7 +1,15 @@
-import { memo } from 'react';
-import { Handle, Position, NodeProps } from 'reactflow';
+import { memo, useCallback } from 'react';
+import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { NodeType } from '@/types/diagram';
-import { Database, Lightbulb, CheckCircle2, Server } from 'lucide-react';
+import { Database, Lightbulb, CheckCircle2, Server, MoreVertical } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const nodeConfig = {
   service: { icon: Server, color: 'hsl(var(--node-service))', label: 'Service' },
@@ -10,11 +18,25 @@ const nodeConfig = {
   action: { icon: CheckCircle2, color: 'hsl(var(--node-action))', label: 'Action' }
 };
 
-export const DiagramNode = memo(({ data, selected }: NodeProps) => {
+export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
   const nodeType = data.nodeType as NodeType || 'service';
   const config = nodeConfig[nodeType];
   const Icon = config.icon;
   const isDraft = (data.confidence || 1) < 0.85;
+  const { setNodes } = useReactFlow();
+
+  const sizeScale: number = typeof (data as any).sizeScale === 'number' ? (data as any).sizeScale : 1;
+
+  // Map levels 1-5 into a tighter 1.0 → 3.0 range (no larger sizes), evenly spaced
+  const levelToScale = (level: number) => 1 + (Math.max(1, Math.min(5, level)) - 1) * 0.5; // 1.0,1.5,2.0,2.5,3.0
+
+  const handleSelectSize = useCallback((level: number) => {
+    const scale = levelToScale(level);
+    setNodes((nodes) => nodes.map((n) => {
+      if (n.id !== id) return n;
+      return { ...n, data: { ...n.data, sizeScale: scale, sizeLevel: level } } as any;
+    }));
+  }, [id, setNodes]);
 
   return (
     <div 
@@ -25,10 +47,31 @@ export const DiagramNode = memo(({ data, selected }: NodeProps) => {
         ${isDraft ? 'border-dashed border-muted-foreground/40' : 'border-border'}
       `}
       style={{
-        borderColor: selected ? config.color : undefined,
+        borderColor: selected ? (data.color || config.color) : (data.color || undefined),
+        transform: `scale(${sizeScale})`,
+        transformOrigin: 'center',
       }}
     >
-      <Handle type="target" position={Position.Left} className="!bg-primary" />
+      {/* Edit dropdown */}
+      <div className="absolute top-1 right-1 z-10">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="h-6 w-6 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground">
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuLabel>Edit</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => handleSelectSize(1)}>Size: 1</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleSelectSize(2)}>Size: 2</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleSelectSize(3)}>Size: 3</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleSelectSize(4)}>Size: 4</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => handleSelectSize(5)}>Size: 5</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      <Handle type="target" position={Position.Top} className="!bg-primary" />
       
       <div className="flex items-start gap-2">
         <div 
@@ -49,7 +92,7 @@ export const DiagramNode = memo(({ data, selected }: NodeProps) => {
         </div>
       </div>
       
-      <Handle type="source" position={Position.Right} className="!bg-primary" />
+      <Handle type="source" position={Position.Bottom} className="!bg-primary" />
     </div>
   );
 });

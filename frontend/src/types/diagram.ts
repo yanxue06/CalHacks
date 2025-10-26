@@ -15,6 +15,7 @@ export interface DiagramNode {
     label: string;
     sourceRefs: SourceRef[];
     confidence?: number;
+    color?: string;
   };
 }
 
