@@ -115,6 +115,19 @@ Main Concept (PARENT)
   ├─ Specific Example (CHILD)
   └─ Implementation Method (CHILD)
 
+🎮 SPECIAL: CLASH ROYALE CONVERSATIONS
+If and ONLY if the conversation is about Clash Royale:
+- Use SPECIFIC card names (e.g., "Hog Rider", "Electro Giant", "X-Bow", "Royal Giant")
+- Include SPECIFIC strategies (e.g., "Split-lane pressure", "Spell cycling", "Beatdown push")
+- Reference SPECIFIC game mechanics (e.g., "Elixir advantage", "King tower activation", "Ladder climbing")
+- Mention SPECIFIC deck archetypes (e.g., "2.6 Hog Cycle", "Golem Beatdown", "X-Bow Siege")
+- Include pro player tactics or meta strategies when relevant
+- Use game-specific terminology (e.g., "defending opposite lane", "spell value", "counterpush")
+Examples for Clash Royale:
+- Instead of: "Improve at game" → Use: "Master Hog 2.6 cycle deck timing"
+- Instead of: "Learn strategy" → Use: "Counter Electro Giant with building placement"
+- Instead of: "Watch replays" → Use: "Study top ladder Morten replays for X-Bow defense"
+
 Return ONLY valid JSON (no markdown):
 {
   "nodes": [
@@ -223,6 +236,15 @@ REMEMBER:
                 }
             }
 
+            // Recalculate tree layout after adding nodes and edges
+            if (addedNodes.length > 0 || addedEdges.length > 0) {
+                graphService.recalculateTreeLayout();
+                
+                // Log hierarchy statistics
+                const stats = graphService.getHierarchyStats();
+                console.log(`📊 Hierarchy: ${stats.totalNodes} nodes, max depth: ${stats.maxDepth}, distribution:`, stats.depthCounts);
+            }
+
             // Broadcast graph update to all clients
             io.emit('graph:update', graphService.getGraph());
 
@@ -319,6 +341,13 @@ WHAT TO KEEP:
 - Specific, detailed concepts
 - Actionable ideas
 
+🎮 SPECIAL: CLASH ROYALE CONVERSATIONS
+If and ONLY if this is about Clash Royale, when updating node labels:
+- Use SPECIFIC card names instead of generic terms (e.g., "Hog Rider" not "unit")
+- Include deck archetypes (e.g., "2.6 Hog Cycle", "Golem Night Witch Beatdown")
+- Reference specific mechanics (e.g., "King tower activation", "Elixir counting")
+- Keep strategy-specific nodes even if they seem similar (they represent different tactics!)
+
 Return ONLY valid JSON (no markdown):
 {
   "nodesToRemove": ["id1", "id2"],
@@ -402,6 +431,7 @@ BE CONSERVATIVE: Only remove nodes that are clearly duplicates or meta-conversat
             }
 
             if (changesMade) {
+                graphService.recalculateTreeLayout();
                 io.emit('graph:update', graphService.getGraph());
                 socket.emit('graph-refined', { success: true });
                 console.log('✅ Graph refinement complete');
@@ -524,6 +554,16 @@ RELATIONSHIP TYPES TO USE:
 - "exemplifies" - specific example of general concept
 - "implements" - concrete realization of abstract idea
 
+🎮 SPECIAL: CLASH ROYALE CONVERSATIONS
+If and ONLY if this conversation is about Clash Royale, create connections using game-specific relationships:
+- "counters" - one card/strategy counters another (e.g., "Inferno Tower" counters "Golem")
+- "synergizes with" - cards that work well together (e.g., "Hog Rider" synergizes with "Earthquake")
+- "baits out" - strategy to bait opponent's response (e.g., "Goblin Barrel" baits out "Log")
+- "pressures" - applying offensive pressure (e.g., "Split-lane push" pressures "Both towers")
+- "defends against" - defensive strategy (e.g., "Cannon placement" defends against "Hog Rider")
+- "outcycles" - faster cycle strategy (e.g., "2.6 Hog" outcycles "Heavy beatdown")
+Use SPECIFIC Clash Royale terminology in your reasoning!
+
 Return ONLY valid JSON (no markdown, no code blocks, no extra text):
 {
   "edgesToAdd": [
@@ -638,6 +678,7 @@ REMEMBER:
                     }
                 }
 
+                graphService.recalculateTreeLayout();
                 io.emit('graph:update', graphService.getGraph());
 
                 socket.emit('graph-finalized', {
@@ -828,6 +869,9 @@ REMEMBER:
                     }
                 });
             }
+
+            // Recalculate tree layout after finalization
+            graphService.recalculateTreeLayout();
 
             // Broadcast update to all clients
             io.emit('graph:update', graphService.getGraph());

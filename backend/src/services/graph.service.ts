@@ -9,6 +9,13 @@ export class GraphService {
         timestamp: string;
     }> = [];
 
+    // Tree layout configuration
+    private readonly TREE_VERTICAL_SPACING = 200; // Vertical space between levels
+    private readonly TREE_HORIZONTAL_SPACING = 350; // Horizontal space between siblings
+    private readonly TREE_ROOT_Y = 50; // Y position of root nodes (top of tree)
+    private readonly TREE_ROOT_X_START = 600; // Starting X position for root nodes
+    private readonly MAX_TREE_DEPTH = 6; // Maximum depth to prevent infinite nesting
+
     constructor() {
         this.graph = {
             nodes: [],
@@ -164,7 +171,58 @@ export class GraphService {
     }
 
     /**
-     * Find a non-overlapping position for a node
+     * Calculate the depth (level) of a node in the tree based on parent relationships
+     */
+    private calculateNodeDepth(nodeId: string, visited: Set<string> = new Set()): number {
+        // Prevent infinite loops
+        if (visited.has(nodeId)) return 0;
+        visited.add(nodeId);
+
+        // Find all parent edges (edges pointing TO this node)
+        const parentEdges = this.graph.edges.filter(edge => edge.target === nodeId);
+
+        if (parentEdges.length === 0) {
+            // This is a root node (no parents)
+            return 0;
+        }
+
+        // Node's depth is 1 + max depth of its parents
+        const parentDepths = parentEdges.map(edge =>
+            this.calculateNodeDepth(edge.source, visited)
+        );
+
+        const calculatedDepth = Math.max(...parentDepths) + 1;
+        
+        // Enforce maximum depth limit
+        return Math.min(calculatedDepth, this.MAX_TREE_DEPTH);
+    }
+
+    /**
+     * Calculate tree position for a node based on its relationships
+     */
+    private calculateTreePosition(nodeId: string): { x: number; y: number } {
+        const depth = this.calculateNodeDepth(nodeId);
+
+        // Y position based on depth (level)
+        const y = this.TREE_ROOT_Y + (depth * this.TREE_VERTICAL_SPACING);
+
+        // Find siblings at the same depth
+        const nodesAtDepth = this.graph.nodes.filter(node => {
+            const nodeDepth = this.calculateNodeDepth(node.id);
+            return nodeDepth === depth;
+        });
+
+        // X position: spread siblings horizontally
+        const siblingIndex = nodesAtDepth.length; // This will be the next sibling
+        const totalWidth = (siblingIndex + 1) * this.TREE_HORIZONTAL_SPACING;
+        const startX = this.TREE_ROOT_X_START - (totalWidth / 2);
+        const x = startX + (siblingIndex * this.TREE_HORIZONTAL_SPACING);
+
+        return { x, y };
+    }
+
+    /**
+     * Find a non-overlapping position for a node (LEGACY - replaced by tree layout)
      */
     private findNonOverlappingPosition(size: { width: number; height: number }): { x: number; y: number } {
         const padding = 40; // Extra space between nodes
@@ -213,10 +271,28 @@ export class GraphService {
     addNode(input: NodeInput): Node {
         const importance: NodeImportance = input.importance || 'small';
         const size = this.getSizeForImportance(importance);
-        const position = input.position || this.findNonOverlappingPosition(size);
+        const nodeId = randomUUID();
+        
+        // Calculate position - use provided position or calculate tree position
+        let position: { x: number; y: number };
+        if (input.position) {
+            position = input.position;
+        } else {
+            // For initial positioning, use a simple grid-based approach
+            // The tree layout will be recalculated after edges are added
+            const nodeCount = this.graph.nodes.length;
+            const spacingX = 300;
+            const spacingY = 200;
+            const nodesPerRow = 4;
+            
+            position = {
+                x: (nodeCount % nodesPerRow) * spacingX + 100,
+                y: Math.floor(nodeCount / nodesPerRow) * spacingY + 100
+            };
+        }
         
         const newNode: Node = {
-            id: randomUUID(),
+            id: nodeId,
             type: input.type || input.category.toLowerCase(), // Use category as default type
             position,
             size,  // Add size to node
@@ -384,6 +460,74 @@ export class GraphService {
         return mergedNode;
     }
     
+    /**
+     * Recalculate tree layout for all nodes based on current edges
+     * Creates a vertical hierarchy with root nodes at top, children flowing down
+     */
+    recalculateTreeLayout(): void {
+        console.log('🌳 Recalculating vertical tree layout...');
+
+        // Group nodes by depth (0 = root nodes at top, higher = children below)
+        const nodesByDepth = new Map<number, Node[]>();
+
+        this.graph.nodes.forEach(node => {
+            const depth = this.calculateNodeDepth(node.id);
+            if (!nodesByDepth.has(depth)) {
+                nodesByDepth.set(depth, []);
+            }
+            nodesByDepth.get(depth)!.push(node);
+        });
+
+        console.log(`   Found ${nodesByDepth.size} depth levels (0=root, ${this.MAX_TREE_DEPTH}=max)`);
+
+        // Position nodes at each depth level, starting from root (depth 0) at top
+        const sortedDepths = Array.from(nodesByDepth.keys()).sort((a, b) => a - b);
+        
+        sortedDepths.forEach(depth => {
+            const nodesAtDepth = nodesByDepth.get(depth)!;
+            
+            // Y position: root nodes at top, children flow downward
+            const y = this.TREE_ROOT_Y + (depth * this.TREE_VERTICAL_SPACING);
+            
+            // X position: center siblings horizontally
+            const totalNodes = nodesAtDepth.length;
+            const totalWidth = Math.max(totalNodes * this.TREE_HORIZONTAL_SPACING, 400); // Minimum width
+            const startX = this.TREE_ROOT_X_START - (totalWidth / 2);
+
+            nodesAtDepth.forEach((node, index) => {
+                const x = startX + (index * this.TREE_HORIZONTAL_SPACING);
+                node.position = { x, y };
+                
+                // Log with hierarchy indicator
+                const indent = '  '.repeat(depth);
+                const levelLabel = depth === 0 ? 'ROOT' : `L${depth}`;
+                console.log(`   ${indent}${levelLabel}: "${node.data.label}" at (${Math.round(x)}, ${y})`);
+            });
+        });
+
+        console.log('✅ Vertical tree layout recalculated');
+    }
+
+    /**
+     * Get hierarchy statistics for debugging
+     */
+    getHierarchyStats(): { totalNodes: number; depthCounts: Record<number, number>; maxDepth: number } {
+        const depthCounts: Record<number, number> = {};
+        let maxDepth = 0;
+
+        this.graph.nodes.forEach(node => {
+            const depth = this.calculateNodeDepth(node.id);
+            depthCounts[depth] = (depthCounts[depth] || 0) + 1;
+            maxDepth = Math.max(maxDepth, depth);
+        });
+
+        return {
+            totalNodes: this.graph.nodes.length,
+            depthCounts,
+            maxDepth
+        };
+    }
+
     /**
      * Calculate automatic layout position
      * Uses a simple grid layout (can be enhanced with dagre or elkjs)
