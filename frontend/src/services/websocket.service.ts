@@ -16,7 +16,7 @@ export class WebSocketService {
   private backendUrl: string;
 
   constructor() {
-    this.backendUrl = import.meta.env.VITE_BACKEND_WS_URL || 'http://localhost:5000';
+    this.backendUrl = import.meta.env.VITE_BACKEND_WS_URL || 'http://localhost:5001';
   }
 
   connect(callbacks: WebSocketCallbacks) {

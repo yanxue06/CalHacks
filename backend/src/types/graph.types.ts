@@ -37,6 +37,7 @@ export interface Edge {
     source: string; // Source node ID
     target: string; // Target node ID
     label?: string; // Optional edge label
+    relationship?: string; // Semantic relationship type (e.g., "exemplifies", "implements")
     type?: string; // React Flow edge type (smoothstep, step, straight, etc.)
     animated?: boolean; // Animate the edge
 }

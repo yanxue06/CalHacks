@@ -132,31 +132,34 @@ export class VapiService {
     }
 
     try {
-      // Start Vapi with custom assistant that only responds when triggered
-      const vapiConfig = {
+      // Start Vapi with custom assistant configuration
+      // Using proper Vapi SDK format
+      const assistantConfig = {
+        name: 'Conversation Assistant',
         transcriber: {
           provider: 'deepgram' as const,
           model: 'nova-2',
-          language: 'en'
+          language: 'en' as const
         },
         model: {
-          provider: 'openai',
-          model: 'gpt-3.5-turbo',
-          messages: [
-            {
-              role: 'system',
-              content: `You are a helpful AI assistant. IMPORTANT: You should ONLY respond when the user explicitly says "Vapi, what do you think" or "Vapi what do you think". 
+          provider: 'openai' as const,
+          model: 'gpt-3.5-turbo' as const,
+          systemPrompt: `You are a helpful AI assistant. IMPORTANT: You should ONLY respond when the user explicitly asks for your opinion or says "Vapi, what do you think".
 
-If the user says anything else, remain completely silent and do not respond at all. Do not acknowledge their statements unless they specifically invoke you with "Vapi, what do you think".
+If the user says anything else, remain completely silent and do not respond at all. Do not acknowledge their statements unless they specifically ask for your input.
 
 When invoked, provide brief, helpful responses about the topic they're discussing.`
-            }
-          ]
+        },
+        voice: {
+          provider: 'playht' as const,
+          voiceId: 'jennifer'
         }
       };
 
       console.log('🚀 Starting Vapi recording...');
-      await this.vapi.start(vapiConfig);
+      console.log('📋 Assistant config:', JSON.stringify(assistantConfig, null, 2));
+      
+      await this.vapi.start(assistantConfig);
 
       console.log('✅ Vapi recording started (AI will only respond when you say "Vapi, what do you think")');
     } catch (error) {
