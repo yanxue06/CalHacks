@@ -6,6 +6,21 @@ export class OpenRouterService {
     private baseUrl: string = 'https://openrouter.ai/api/v1';
     private lastRequestTime: number = 0;
     private minRequestInterval: number = 3000; // 3 seconds between requests (max 20 requests/min)
+    
+    // Model priority: start with paid models, use free as fallback
+    private paidModels: string[] = [
+        'google/gemini-pro',
+        'google/gemini-flash-1.5',
+        'anthropic/claude-3-haiku',
+        'openai/gpt-3.5-turbo'
+    ];
+    
+    private freeModels: string[] = [
+        'google/gemini-2.0-flash-exp:free',
+        'meta-llama/llama-3.2-3b-instruct:free',
+        'meta-llama/llama-3.2-1b-instruct:free',
+        'qwen/qwen-2-7b-instruct:free'
+    ];
 
     constructor() {
         this.apiKey = process.env.OPENROUTER_API_KEY || '';
@@ -32,20 +47,25 @@ export class OpenRouterService {
         this.lastRequestTime = Date.now();
     }
 
-    async chat(message: string, model: string = 'google/gemini-pro', retries: number = 3): Promise<string> {
+    async chat(message: string, model?: string, retries: number = 3): Promise<string> {
         if (!this.apiKey) {
             throw new Error('OpenRouter API key not configured');
         }
 
-        // Throttle to prevent rate limiting
-        await this.throttle();
-
-        for (let attempt = 0; attempt < retries; attempt++) {
+        // If no model specified, try paid models first, then free models as fallback
+        const modelsToTry = model ? [model] : [...this.paidModels, ...this.freeModels];
+        
+        for (const currentModel of modelsToTry) {
+            console.log(`🤖 Trying model: ${currentModel}`);
+            
             try {
+                // Throttle to prevent rate limiting
+                await this.throttle();
+                
                 const response: AxiosResponse<OpenRouterResponse> = await axios.post(
                     `${this.baseUrl}/chat/completions`,
                     {
-                        model,
+                        model: currentModel,
                         messages: [
                             {
                                 role: 'user',
@@ -65,26 +85,40 @@ export class OpenRouterService {
                     }
                 );
 
-                return response.data.choices[0]?.message?.content || 'No response generated';
+                const result = response.data.choices[0]?.message?.content || 'No response generated';
+                console.log(`✅ Model ${currentModel} succeeded`);
+                return result;
+                
             } catch (error) {
                 if (axios.isAxiosError(error)) {
                     const status = error.response?.status;
+                    const errorData = error.response?.data;
                     
-                    // If rate limited (429), wait and retry with exponential backoff
-                    if (status === 429 && attempt < retries - 1) {
-                        const waitTime = Math.pow(2, attempt) * 5000; // 5s, 10s, 20s
-                        console.warn(`⏳ Rate limited (429). Waiting ${waitTime/1000}s before retry ${attempt + 1}/${retries}...`);
-                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                    console.error('OpenRouter API Error:', errorData);
+                    
+                    // If rate limited (429), try next model
+                    if (status === 429) {
+                        console.warn(`⚠️ Model ${currentModel} rate limited, trying next model...`);
                         continue;
                     }
                     
-                    console.error('OpenRouter API Error:', error.response?.data || error.message);
-                    throw new Error(`OpenRouter API Error: ${error.response?.data?.error?.message || error.message}`);
+                    // If model not found (404), try next model
+                    if (status === 404) {
+                        console.warn(`⚠️ Model ${currentModel} not found, trying next model...`);
+                        continue;
+                    }
+                    
+                    // For other errors, try next model
+                    console.warn(`⚠️ Model ${currentModel} failed, trying next model...`);
+                    continue;
                 }
-                throw new Error('Failed to communicate with OpenRouter API');
+                
+                console.error(`❌ Unexpected error with model ${currentModel}:`, error);
+                continue;
             }
         }
-        throw new Error('Max retries reached for OpenRouter API');
+        
+        throw new Error('All models failed. Please try again later.');
     }
 
     async getModels(): Promise<Model[]> {

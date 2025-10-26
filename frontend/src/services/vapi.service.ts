@@ -8,6 +8,18 @@ export class VapiService {
   private isDevelopment: boolean = false; // Set to false to use real Vapi
   private onTranscriptCallback: ((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => void) | null = null;
   private conversationHistory: Array<{ role: 'user' | 'assistant', text: string }> = [];
+  // All words that sound like "helios" - if any of these appear in user speech, respond
+  private triggerPhrases: string[] = [
+    'helios',
+    'helio',
+    'helios\'',
+    'helios\'s',
+    'hey helios',
+    'helios what do you think',
+    'helios any thoughts',
+    'helios help',
+    'helios advice'
+  ];
 
   constructor() {
     this.publicKey = import.meta.env.VITE_VAPI_PUBLIC_KEY || '';
@@ -31,6 +43,62 @@ export class VapiService {
   clearConversationHistory() {
     this.conversationHistory = [];
   }
+
+  /**
+   * Check if user input contains any vapi-sounding words
+   * Simple keyword search - if any vapi-like word appears, respond
+   */
+  private containsTriggerPhrase(text: string): boolean {
+    const lowerText = text.toLowerCase().trim();
+    return this.triggerPhrases.some(phrase => lowerText.includes(phrase));
+  }
+
+  /**
+   * Generate and speak a response when triggered
+   */
+  private async generateAndSpeakResponse(userInput: string) {
+    if (!this.vapi) return;
+
+    try {
+      // 1. Get the full conversation history
+      const history = this.getConversationHistory();
+      console.log('🤖 Asking AI for a smart response...');
+
+      // 2. Call your own backend to get a Gemini response
+      const response = await fetch(`${this.backendUrl}/api/generate-response`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          history: history,
+          lastUserMessage: userInput
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('AI backend request failed');
+      }
+
+      const { text } = await response.json();
+      
+      console.log('🗣️ Speaking AI response:', text);
+
+      // 3. Use vapi.say() to speak the intelligent response
+      await this.vapi.say(text);
+      
+      // Add the AI response to conversation history
+      this.conversationHistory.push({
+        role: 'assistant',
+        text: text
+      });
+      
+      
+    } catch (error) {
+      console.error('❌ Error generating smart response:', error);
+      // Fallback response if AI fails
+      await this.vapi.say("I'm sorry, I had trouble thinking of a response.");
+    }
+  }
+
 
   async initialize() {
     if (!this.publicKey) {
@@ -76,17 +144,31 @@ export class VapiService {
       if (message.type === 'transcript') {
         console.log('📝 Transcript:', message.transcript);
         
-        // Store ALL final transcripts (both user and assistant) in conversation history
+        // Store final transcripts in conversation history
         if (message.transcriptType === 'final') {
-          this.conversationHistory.push({
-            role: message.role,
-            text: message.transcript
-          });
-          console.log(`💬 Added to conversation: ${message.role} - ${message.transcript}`);
           
-          // Trigger processing on BOTH user and assistant final transcripts
-          // This ensures nodes are generated as the conversation evolves
-          this.processTranscript(message.transcript);
+          // Check if user said a trigger phrase
+          if (message.role === 'user') {
+            // Always add user messages
+            this.conversationHistory.push({
+              role: message.role,
+              text: message.transcript
+            });
+            console.log(`💬 Added to conversation: ${message.role} - ${message.transcript}`);
+            
+            // Check for trigger phrase
+            if (this.containsTriggerPhrase(message.transcript)) {
+              console.log('🎯 Trigger phrase detected! Generating AI response...');
+              this.generateAndSpeakResponse(message.transcript);
+            }
+            
+            // Trigger processing for graph generation
+            this.processTranscript(message.transcript);
+          } else if (message.role === 'assistant') {
+            // Ignore automatic assistant responses from Vapi
+            // Only our manually generated responses (via generateAndSpeakResponse) should be added
+            console.log(`🚫 Ignoring automatic assistant response: "${message.transcript}"`);
+          }
         }
       } else if (message.type === 'function-call') {
         console.log('🔧 Function call:', message);
@@ -95,6 +177,12 @@ export class VapiService {
 
     this.vapi.on('error', (error: any) => {
       console.error('❌ Vapi error:', error);
+      console.error('❌ Error details:', {
+        type: error.type,
+        stage: error.stage,
+        message: error.message,
+        timestamp: error.timestamp
+      });
     });
 
     this.vapi.on('volume-level', (level: number) => {
@@ -134,26 +222,41 @@ export class VapiService {
     try {
       // Start Vapi with custom assistant configuration
       // Using proper Vapi SDK format
+      // AI will only respond to these trigger phrases:
+      // - "Helios, what do you think?"
+      // - "Helios, any thoughts?"
+      // - "Hey Helios"
+      // - "Helios, help"
+      // - "Helios, advice"
       const assistantConfig = {
-        name: 'Conversation Assistant',
+        name: 'Helios',
         transcriber: {
           provider: 'deepgram' as const,
-          model: 'nova-2',
-          language: 'en' as const
+          model: 'nova-2'
         },
         model: {
           provider: 'openai' as const,
           model: 'gpt-3.5-turbo' as const,
-          systemPrompt: `You are a helpful AI assistant. IMPORTANT: You should ONLY respond when the user explicitly asks for your opinion or says "Vapi, what do you think".
+          systemPrompt: `You are a transcription-only assistant. 
 
-If the user says anything else, remain completely silent and do not respond at all. Do not acknowledge their statements unless they specifically ask for your input.
+CRITICAL RULES:
+- You MUST NEVER speak or respond to anything
+- You MUST NEVER say "hello", "goodbye", "silence", or ANY word
+- You MUST NEVER acknowledge the user in any way
+- Your ONLY job is to listen and transcribe
+- Do NOT generate ANY responses whatsoever
+- If you are about to speak, STOP - you are breaking the rules
+- The ONLY exception: if the user explicitly says "Helios", then you may respond
 
-When invoked, provide brief, helpful responses about the topic they're discussing.`
+Unless the word "HELIOS" is spoken, output NOTHING. Stay completely silent. If you are about to say "silence", STOP - you are breaking the rules`
         },
         voice: {
           provider: 'playht' as const,
           voiceId: 'jennifer'
-        }
+        },
+        backchannelingEnabled: false, // Disable automatic acknowledgments
+        firstMessageMode: 'assistant-waits-for-user' as const, // Assistant waits for user to speak first
+        silenceTimeoutSeconds: 180 // Longer timeout to prevent premature call termination
       };
 
       console.log('🚀 Starting Vapi recording...');
@@ -161,9 +264,14 @@ When invoked, provide brief, helpful responses about the topic they're discussin
       
       await this.vapi.start(assistantConfig);
 
-      console.log('✅ Vapi recording started (AI will only respond when you say "Vapi, what do you think")');
+      console.log('✅ Helios recording started (AI will only respond to trigger phrases like "Helios, what do you think?")');
     } catch (error) {
       console.error('Failed to start Vapi recording:', error);
+      console.error('Error details:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name
+      });
       
       // If Vapi fails due to CORS or other issues, fall back to development mode
       console.warn('⚠️ Vapi error - falling back to development mode');

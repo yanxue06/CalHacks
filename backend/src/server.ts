@@ -146,24 +146,8 @@ REMEMBER:
 
             // Try multiple free models in case one is rate limited
             let response;
-            const freeModels = [
-                'google/gemini-2.0-flash-exp:free',
-                'google/gemini-flash-1.5:free',
-                'meta-llama/llama-3.2-3b-instruct:free'
-            ];
-            
-            for (const model of freeModels) {
-                try {
-                    console.log(`🤖 Trying model: ${model}`);
-                    response = await openRouterService.chat(prompt, model);
-                    break; // Success, exit loop
-                } catch (error) {
-                    console.warn(`⚠️ Model ${model} failed, trying next...`);
-                    if (model === freeModels[freeModels.length - 1]) {
-                        throw error; // Last model, throw error
-                    }
-                }
-            }
+            // Use OpenRouterService's automatic model fallback (paid first, then free)
+            response = await openRouterService.chat(prompt);
             console.log('🤖 Gemini response:', response);
 
             if (!response) {
@@ -363,23 +347,10 @@ BE CONSERVATIVE: Only remove nodes that are clearly duplicates or meta-conversat
 
             // Try multiple free models for refinement
             let response;
-            const freeModels = [
-                'google/gemini-2.0-flash-exp:free',
-                'google/gemini-flash-1.5:free',
-                'meta-llama/llama-3.2-3b-instruct:free'
-            ];
-            
-            console.log('🤖 Trying models:', freeModels);
             console.log('🤖 Refinement prompt:', refinementPrompt);
             
-            for (const model of freeModels) {
-                try {
-                    response = await openRouterService.chat(refinementPrompt, model);
-                    break;
-                } catch (error) {
-                    if (model === freeModels[freeModels.length - 1]) throw error;
-                }
-            }
+            // Use OpenRouterService's automatic model fallback (paid first, then free)
+            response = await openRouterService.chat(refinementPrompt);
             console.log('🤖 Refinement response:', response);
 
             const jsonMatch = response?.match(/\{[\s\S]*\}/);
@@ -588,46 +559,16 @@ REMEMBER:
 
             // Try multiple free models with exponential backoff
             let response;
-            const freeModels = [
-                'google/gemini-2.0-flash-exp:free',
-                'meta-llama/llama-3.2-3b-instruct:free',
-                'meta-llama/llama-3.2-1b-instruct:free',
-                'google/gemma-2-9b-it:free',
-                'mistralai/mistral-7b-instruct:free',
-                'nousresearch/hermes-3-llama-3.1-405b:free'
-            ];
-
             let aiSucceeded = false;
 
-            for (let i = 0; i < freeModels.length; i++) {
-                const model = freeModels[i];
-                try {
-                    console.log(`   Trying model ${i + 1}/${freeModels.length}: ${model}`);
-
-                    // Exponential backoff: wait longer between each attempt
-                    if (i > 0) {
-                        const waitTime = Math.min(1000 * Math.pow(2, i - 1), 10000); // Max 10s
-                        console.log(`   ⏳ Waiting ${waitTime}ms before trying next model...`);
-                        await new Promise(resolve => setTimeout(resolve, waitTime));
-                    }
-
-                    response = await openRouterService.chat(finalizationPrompt, model);
-                    console.log(`   ✅ Model ${model} responded successfully`);
-                    aiSucceeded = true;
-                    break;
-                } catch (error) {
-                    const errorMsg = error instanceof Error ? error.message : String(error);
-                    console.warn(`   ⚠️  Model ${model} failed: ${errorMsg}`);
-
-                    // If it's a rate limit, wait a bit longer
-                    if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-                        console.log(`   ⏸️  Rate limited - will try next model after delay`);
-                    }
-
-                    if (i === freeModels.length - 1) {
-                        console.error('   ❌ All AI models exhausted or rate limited');
-                    }
-                }
+            try {
+                // Use OpenRouterService's automatic model fallback (paid first, then free)
+                response = await openRouterService.chat(finalizationPrompt);
+                console.log(`   ✅ Model responded successfully`);
+                aiSucceeded = true;
+            } catch (error) {
+                const errorMsg = error instanceof Error ? error.message : String(error);
+                console.error('   ❌ All AI models exhausted or rate limited:', errorMsg);
             }
 
             // Fallback: If all AI models fail, use simple rule-based connection
@@ -715,12 +656,29 @@ REMEMBER:
 
             let finalization;
             try {
+                // Try to parse as-is first
                 finalization = JSON.parse(jsonStr);
             } catch (parseError) {
-                console.error('❌ JSON parse error:', parseError);
-                console.error('Attempted to parse:', jsonStr);
-                socket.emit('error', { message: 'Failed to parse AI finalization response - invalid JSON' });
-                return;
+                console.warn('⚠️ Initial JSON parse failed, attempting cleanup...');
+                
+                try {
+                    // Clean up common JSON issues
+                    let cleanedJson = jsonStr
+                        // Remove trailing commas before closing brackets/braces
+                        .replace(/,(\s*[}\]])/g, '$1')
+                        // Fix missing commas between array elements
+                        .replace(/\}(\s*)\{/g, '},$1{')
+                        // Remove any trailing commas at the end
+                        .replace(/,(\s*)$/g, '$1');
+                    
+                    finalization = JSON.parse(cleanedJson);
+                    console.log('✅ JSON cleaned and parsed successfully');
+                } catch (cleanupError) {
+                    console.error('❌ JSON parse error after cleanup:', cleanupError);
+                    console.error('Attempted to parse:', jsonStr);
+                    socket.emit('error', { message: 'Failed to parse AI finalization response - invalid JSON' });
+                    return;
+                }
             }
             console.log('\n✅ Parsed AI finalization:');
             console.log(JSON.stringify(finalization, null, 2));
@@ -1249,30 +1207,8 @@ Please provide a brief 2-3 sentence summary of what was discussed about: "${node
 
 Be specific and focus on the key points related to this topic.`;
 
-        // Try multiple free models in case one is rate limited
-        let summary;
-        const freeModels = [
-            'google/gemini-2.0-flash-exp:free',
-            'google/gemini-flash-1.5:free',
-            'meta-llama/llama-3.2-3b-instruct:free'
-        ];
-        
-        for (const model of freeModels) {
-            try {
-                console.log(`🤖 Trying model for summary: ${model}`);
-                summary = await openRouterService.chat(summaryPrompt, model);
-                break; // Success, exit loop
-            } catch (error) {
-                console.warn(`⚠️ Model ${model} failed for summary, trying next...`);
-                if (model === freeModels[freeModels.length - 1]) {
-                    throw error; // Last model, throw error
-                }
-            }
-        }
-        
-        if (!summary) {
-            throw new Error('Failed to generate summary with any available model');
-        }
+        // Use OpenRouterService's automatic model fallback (paid first, then free)
+        const summary = await openRouterService.chat(summaryPrompt);
         
         console.log(`✅ Generated summary for node "${node.data.label}": ${summary.substring(0, 100)}...`);
         
@@ -1284,6 +1220,50 @@ Be specific and focus on the key points related to this topic.`;
     } catch (error) {
         console.error('❌ Error generating summary:', error);
         res.status(500).json({ error: 'Failed to generate summary' });
+    }
+});
+
+// ==================== VAPI RESPONSE GENERATION ====================
+
+/**
+ * Generate an intelligent response using Gemini for Vapi
+ */
+app.post('/api/generate-response', async (req: Request, res: Response) => {
+    try {
+        const { history, lastUserMessage } = req.body;
+
+        if (!history || !lastUserMessage) {
+            res.status(400).json({ error: 'Missing history or lastUserMessage' });
+            return;
+        }
+
+        console.log('🤖 Generating Helios response with Gemini...');
+        console.log('📜 Conversation history:', history);
+        console.log('💬 Last user message:', lastUserMessage);
+
+        // Create a prompt for Gemini to generate a helpful response
+        const prompt = `You are Helios, a helpful AI assistant in a conversation. The user has asked for your opinion or advice.
+
+CONVERSATION HISTORY:
+${history}
+
+The user just said: "${lastUserMessage}"
+
+Provide a brief (1-2 sentences), helpful, and insightful response about the topic being discussed. Be conversational and supportive. Focus on asking clarifying questions or offering practical advice.`;
+
+        // Use OpenRouter service to call Gemini
+        const aiResponse = await openRouterService.chat(prompt);
+
+        console.log('✅ Generated response:', aiResponse);
+
+        res.json({ text: aiResponse });
+
+    } catch (error) {
+        console.error('❌ Error generating Vapi response:', error);
+        res.status(500).json({ 
+            error: 'Failed to generate response',
+            text: "I'm having trouble thinking right now. Could you rephrase that?"
+        });
     }
 });
 
