@@ -4,6 +4,8 @@ import { ChatMessage, OpenRouterResponse, Model } from '../types';
 export class OpenRouterService {
     private apiKey: string;
     private baseUrl: string = 'https://openrouter.ai/api/v1';
+    private lastRequestTime: number = 0;
+    private minRequestInterval: number = 3000; // 3 seconds between requests (max 20 requests/min)
 
     constructor() {
         this.apiKey = process.env.OPENROUTER_API_KEY || '';
@@ -14,10 +16,29 @@ export class OpenRouterService {
         }
     }
 
+    /**
+     * Throttle requests to prevent rate limiting
+     */
+    private async throttle(): Promise<void> {
+        const now = Date.now();
+        const timeSinceLastRequest = now - this.lastRequestTime;
+
+        if (timeSinceLastRequest < this.minRequestInterval) {
+            const waitTime = this.minRequestInterval - timeSinceLastRequest;
+            console.log(`⏳ Throttling: waiting ${waitTime}ms before next request`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+
+        this.lastRequestTime = Date.now();
+    }
+
     async chat(message: string, model: string = 'google/gemini-pro', retries: number = 3): Promise<string> {
         if (!this.apiKey) {
             throw new Error('OpenRouter API key not configured');
         }
+
+        // Throttle to prevent rate limiting
+        await this.throttle();
 
         for (let attempt = 0; attempt < retries; attempt++) {
             try {
@@ -51,7 +72,7 @@ export class OpenRouterService {
                     
                     // If rate limited (429), wait and retry with exponential backoff
                     if (status === 429 && attempt < retries - 1) {
-                        const waitTime = Math.pow(2, attempt) * 2000; // 2s, 4s, 8s
+                        const waitTime = Math.pow(2, attempt) * 5000; // 5s, 10s, 20s
                         console.warn(`⏳ Rate limited (429). Waiting ${waitTime/1000}s before retry ${attempt + 1}/${retries}...`);
                         await new Promise(resolve => setTimeout(resolve, waitTime));
                         continue;

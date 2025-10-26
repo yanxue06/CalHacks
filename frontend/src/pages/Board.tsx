@@ -43,41 +43,51 @@ const Board = () => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const lastProcessedTime = useRef<number>(0);
   const lastRefinementTime = useRef<number>(0);
+  const lastConversationLength = useRef<number>(0);
   const refinementIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const MIN_PROCESS_INTERVAL = 5000; // 5 seconds between processing
-  const REFINEMENT_INTERVAL = 10000; // 10 seconds between refinements
+  const MIN_PROCESS_INTERVAL = 15000; // 15 seconds between processing (4 API calls/min max)
+  const REFINEMENT_INTERVAL = 30000; // 30 seconds between refinements (2 API calls/min max)
+  const MIN_NEW_MESSAGES_FOR_REFINEMENT = 4; // Only refine if at least 4 new messages
 
   const handleTranscript = useCallback((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => {
     console.log('📝 Received conversation history from Vapi:', conversationHistory);
-    
+
     // Only process if we have substantial conversation (at least 2 exchanges: 1 user + 1 AI)
     if (conversationHistory.length < 2) {
       console.log('⏭️ Skipping - need at least 2 conversation exchanges');
       return;
     }
-    
+
+    // Check if there's enough new content (at least 2 new messages)
+    const newMessagesCount = conversationHistory.length - lastConversationLength.current;
+    if (newMessagesCount < 2 && lastConversationLength.current > 0) {
+      console.log(`⏭️ Skipping - only ${newMessagesCount} new message(s), need at least 2`);
+      return;
+    }
+
     // Rate limiting: prevent processing too frequently
     const now = Date.now();
     const timeSinceLastProcess = now - lastProcessedTime.current;
-    
+
     if (timeSinceLastProcess < MIN_PROCESS_INTERVAL) {
       console.log(`⏱️ Rate limited: waiting ${Math.ceil((MIN_PROCESS_INTERVAL - timeSinceLastProcess) / 1000)}s before next process`);
       // Don't show toast for rate limiting - it's too noisy
       return;
     }
-    
-    // Update last processed time
+
+    // Update last processed time and conversation length
     lastProcessedTime.current = now;
-    
+    lastConversationLength.current = conversationHistory.length;
+
     // Format conversation for backend
     const formattedConversation = conversationHistory
       .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
       .join('\n');
-    
+
     // Send full conversation to backend via WebSocket
     wsService.current.sendTranscript(formattedConversation);
-    
-    console.log('📤 Sent conversation to backend for processing');
+
+    console.log(`📤 Sent conversation to backend for processing (${conversationHistory.length} messages total, ${newMessagesCount} new)`);
   }, []);
 
   useEffect(() => {
@@ -181,13 +191,25 @@ const Board = () => {
       setActionItems([]);
       
       await vapiService.current.startRecording();
-      
-      // Start refinement interval - refine graph every 10 seconds during recording
+
+      // Start refinement interval - refine graph every 30 seconds during recording
+      // Only refine if there's significant new content
+      let lastRefinedConversationLength = 0;
       refinementIntervalRef.current = setInterval(() => {
         const conversationHistory = vapiService.current.getConversationHistory();
         if (conversationHistory && conversationHistory.length > 0) {
-          console.log('🔍 Triggering periodic graph refinement');
-          wsService.current.refineGraph(conversationHistory);
+          // Split into messages and count them
+          const messages = conversationHistory.split('\n').filter(line => line.trim().length > 0);
+          const newMessagesCount = messages.length - lastRefinedConversationLength;
+
+          // Only refine if we have enough new content
+          if (newMessagesCount >= MIN_NEW_MESSAGES_FOR_REFINEMENT) {
+            console.log(`🔍 Triggering periodic graph refinement (${newMessagesCount} new messages since last refinement)`);
+            wsService.current.refineGraph(conversationHistory);
+            lastRefinedConversationLength = messages.length;
+          } else {
+            console.log(`⏭️ Skipping refinement - only ${newMessagesCount} new messages (need ${MIN_NEW_MESSAGES_FOR_REFINEMENT})`);
+          }
         }
       }, REFINEMENT_INTERVAL);
       
@@ -206,16 +228,20 @@ const Board = () => {
   const handleStopRecording = useCallback(async () => {
     try {
       setStatus('finalizing');
-      
+
       // Stop refinement interval
       if (refinementIntervalRef.current) {
         clearInterval(refinementIntervalRef.current);
         refinementIntervalRef.current = null;
         console.log('⏹️ Stopped refinement interval');
       }
-      
+
+      // Reset conversation tracking
+      lastConversationLength.current = 0;
+      lastProcessedTime.current = 0;
+
       await vapiService.current.stopRecording();
-      
+
       toast.info('Processing...', {
         description: 'Finalizing your conversation analysis'
       });
