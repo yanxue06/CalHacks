@@ -36,24 +36,24 @@ export const DetailsSidebar = ({
   const sourceRefs = (selectedNode?.data.sourceRefs || selectedEdge?.data.sourceRefs || []);
 
   return (
-    <div className="w-96 border-l border-border bg-card flex flex-col">
+    <div className="h-full border-l border-border/50 bg-card/80 backdrop-blur-xl flex flex-col">
       <Tabs defaultValue="details" className="flex-1 flex flex-col">
-        <TabsList className="w-full rounded-none border-b border-border bg-transparent p-0">
+        <TabsList className="w-full rounded-none border-b border-border/50 bg-transparent p-0">
           <TabsTrigger 
             value="details" 
-            className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+            className="flex-1 rounded-none text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary"
           >
             Details
           </TabsTrigger>
           <TabsTrigger 
             value="summary"
-            className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+            className="flex-1 rounded-none text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary"
           >
             AI Summary
           </TabsTrigger>
           <TabsTrigger 
             value="next-steps"
-            className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+            className="flex-1 rounded-none text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary"
           >
             Next Steps
           </TabsTrigger>
@@ -91,7 +91,7 @@ export const DetailsSidebar = ({
                   </h4>
                   <div className="space-y-3">
                     {sourceRefs.map((ref, idx) => (
-                      <Card key={idx} className="p-3 space-y-2">
+                      <Card key={idx} className="p-3 space-y-2 bg-accent/50 border-border">
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <User className="w-3 h-3" />
                           <span className="font-medium">{ref.speaker}</span>
@@ -129,7 +129,7 @@ export const DetailsSidebar = ({
                     <MessageSquareQuote className="w-4 h-4" />
                     AI Summary for "{selectedNode.data.label}"
                   </h4>
-                  <Card className="p-4">
+                  <Card className="p-4 bg-accent/50 border-border">
                     <p className="text-sm leading-relaxed text-foreground">{nodeSummary}</p>
                   </Card>
                 </div>
@@ -157,7 +157,7 @@ export const DetailsSidebar = ({
                     </h4>
                     <div className="space-y-2">
                       {decisions.map((decision, idx) => (
-                        <Card key={idx} className="p-3 space-y-2">
+                        <Card key={idx} className="p-3 space-y-2 bg-accent/50 border-border">
                           <p className="text-sm font-medium">{decision.text}</p>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             <User className="w-3 h-3" />
@@ -185,7 +185,7 @@ export const DetailsSidebar = ({
                     </h4>
                     <div className="space-y-2">
                       {actionItems.map((item, idx) => (
-                        <Card key={idx} className="p-3 space-y-2">
+                        <Card key={idx} className="p-3 space-y-2 bg-accent/50 border-border">
                           <p className="text-sm font-medium">{item.text}</p>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
                             {item.owner && (

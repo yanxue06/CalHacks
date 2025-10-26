@@ -41,13 +41,15 @@ export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
   return (
     <div 
       className={`
-        relative px-4 py-3 rounded-lg bg-card border-2 shadow-lg
+        relative px-4 py-3 rounded-lg bg-card/90 backdrop-blur-sm border-2 shadow-2xl
         transition-all duration-300 min-w-[180px]
-        ${selected ? 'ring-2 ring-primary ring-offset-2' : ''}
-        ${isDraft ? 'border-dashed border-muted-foreground/40' : 'border-border'}
+        ${selected ? 'ring-2 ring-primary/60 ring-offset-2 ring-offset-background' : ''}
+        ${isDraft ? 'border-dashed border-muted-foreground/40' : ''}
       `}
       style={{
-        borderColor: selected ? (data.color || config.color) : (data.color || undefined),
+        borderColor: selected 
+          ? (data.color || config.color) 
+          : (data.color || 'hsl(var(--border))'),
         transform: `scale(${sizeScale})`,
         transformOrigin: 'center',
       }}
@@ -73,21 +75,23 @@ export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
       </div>
       <Handle type="target" position={Position.Top} className="!bg-primary" />
       
-      <div className="flex items-start gap-2">
+      <div className="flex items-start gap-3">
         <div 
-          className="p-1.5 rounded-md shrink-0"
-          style={{ backgroundColor: `${config.color}20` }}
+          className="p-2 rounded-lg shrink-0"
+          style={{ backgroundColor: `${config.color}15` }}
         >
           <Icon className="w-4 h-4" style={{ color: config.color }} />
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="text-xs text-muted-foreground mb-1">{config.label}</div>
-          <div className="font-medium text-sm text-foreground leading-tight">
+          <div className="text-xs font-mono text-gray-500 mb-1.5 uppercase tracking-wider">
+            {config.label}
+          </div>
+          <div className="font-medium text-sm text-foreground leading-snug">
             {data.label}
           </div>
           {isDraft && (
-            <div className="text-xs text-muted-foreground mt-1">Draft</div>
+            <div className="text-xs font-mono text-yellow-500/80 mt-1.5">DRAFT</div>
           )}
         </div>
       </div>

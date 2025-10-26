@@ -35,16 +35,16 @@ export const StatusBanner = ({ status }: StatusBannerProps) => {
 
   return (
     <div 
-      className="flex items-center gap-3 px-4 py-3 border-b border-border animate-in fade-in slide-in-from-top-2"
+      className="flex items-center gap-3 px-6 py-3 border-b border-border/50 backdrop-blur-xl animate-in fade-in slide-in-from-top-2"
       style={{ backgroundColor: config.bgColor }}
     >
       {Icon && (
         <Icon 
-          className={`w-5 h-5 ${Icon === Loader2 ? 'animate-spin' : ''}`}
+          className={`w-4 h-4 ${Icon === Loader2 ? 'animate-spin' : ''}`}
           style={{ color: config.textColor }}
         />
       )}
-      <span className="text-sm font-medium" style={{ color: config.textColor }}>
+      <span className="text-sm font-medium font-mono" style={{ color: config.textColor }}>
         {config.text}
       </span>
     </div>

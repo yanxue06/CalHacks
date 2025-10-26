@@ -4,6 +4,7 @@ import ReactFlow, {
   Edge,
   Controls,
   Background,
+  BackgroundVariant,
   useNodesState,
   useEdgesState,
   ConnectionLineType,
@@ -24,6 +25,7 @@ import { VapiService } from '@/services/vapi.service';
 import { DiagramNode, DiagramEdge, Decision, ActionItem, RecordingStatus } from '@/types/diagram';
 import { toast } from 'sonner';
 import { toPng } from 'html-to-image';
+import { GripVertical } from 'lucide-react';
 
 const nodeTypes: NodeTypes = {
   custom: CustomNode,
@@ -56,6 +58,8 @@ const Board = () => {
   const [collapsedMap, setCollapsedMap] = useState<Record<string, string[]>>({});
   const COLLAPSE_ZOOM = 0.9; // collapse sooner so it's noticeable
   const EXPAND_ZOOM = 1.0;   // expand when zoomed back near 1
+  const [sidebarWidth, setSidebarWidth] = useState(384); // 96 * 4 = 384px (w-96)
+  const [isResizing, setIsResizing] = useState(false);
 
   const fetchNodeSummary = useCallback(async (nodeId: string) => {
     // Check cache first
@@ -602,6 +606,37 @@ const Board = () => {
     }
   }, [reactFlowInstance, buildChildrenMap, collapsedMap, collapseParent, expandParent]);
 
+  // Sidebar resize handlers
+  const handleMouseDown = useCallback(() => {
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isResizing) return;
+    const newWidth = window.innerWidth - e.clientX;
+    // Min width: 280px, Max width: 600px
+    setSidebarWidth(Math.max(280, Math.min(600, newWidth)));
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+      };
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
   // Also recheck on nodes/edges change using current zoom
   useEffect(() => {
     const zoom = reactFlowInstance?.getZoom?.() ?? 1;
@@ -640,27 +675,45 @@ const Board = () => {
             fitView
             minZoom={0.2}
             maxZoom={2}
+            className="bg-background"
             defaultEdgeOptions={{
               type: 'smoothstep',
               animated: true,
-              style: { stroke: 'hsl(var(--primary))', strokeWidth: 2 }
+              style: { stroke: 'hsl(var(--border))', strokeWidth: 1.5 }
             }}
           >
-            <Background gap={20} size={1} color="hsl(var(--border))" />
-            <Controls className="!bg-card !border-border" />
+            <Background variant={BackgroundVariant.Dots} gap={16} size={2} color="hsl(var(--border))" />
+            <Controls className="!bg-card !border-border [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-foreground [&>button:hover]:!bg-accent" />
           </ReactFlow>
 
           <BottomToolbar onQuickAddNode={handleQuickAddNode} />
         </div>
 
-        <DetailsSidebar
-          selectedNode={selectedNode}
-          selectedEdge={selectedEdge}
-          decisions={decisions}
-          actionItems={actionItems}
-          nodeSummary={nodeSummary}
-          summaryLoading={summaryLoading}
-        />
+        {/* Resize Handle */}
+        <div
+          onMouseDown={handleMouseDown}
+          className={`relative w-px bg-border hover:bg-primary transition-colors cursor-col-resize z-50 ${
+            isResizing ? 'bg-primary' : ''
+          }`}
+          style={{ touchAction: 'none' }}
+        >
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50">
+            <div className="bg-card/90 backdrop-blur-sm border border-border rounded-md p-1 shadow-lg">
+              <GripVertical className="w-3 h-3 text-muted-foreground" />
+            </div>
+          </div>
+        </div>
+
+        <div style={{ width: `${sidebarWidth}px` }} className="flex-shrink-0">
+          <DetailsSidebar
+            selectedNode={selectedNode}
+            selectedEdge={selectedEdge}
+            decisions={decisions}
+            actionItems={actionItems}
+            nodeSummary={nodeSummary}
+            summaryLoading={summaryLoading}
+          />
+        </div>
       </div>
     </div>
   );
