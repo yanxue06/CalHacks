@@ -54,7 +54,7 @@ export const Toolbar = ({
   return (
     <div className="flex items-center justify-between px-6 py-4 border-b border-border/50 bg-card/80 backdrop-blur-xl">
       <div className="flex items-center gap-6">
-        <h1 className="text-lg font-semibold tracking-tight">ConvoGraph</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Helios</h1>
         
         <div className="flex items-center gap-3 ml-4">
           {!isRecording ? (
