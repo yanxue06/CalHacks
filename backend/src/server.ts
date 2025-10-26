@@ -64,14 +64,15 @@ io.on('connection', (socket) => {
                 const trimmedLine = line.trim();
                 if (!trimmedLine) return;
                 
-                const match = trimmedLine.match(/^(User|AI):\s*(.+)$/);
+                // Match patterns like "User:", "AI:", "Speaker 0:", "Speaker 1:", etc.
+                const match = trimmedLine.match(/^(User|AI|Speaker\s+\d+):\s*(.+)$/i);
                 if (match) {
                     // Save previous message if exists
                     if (currentSpeaker && currentText) {
                         graphService.addTranscript(currentSpeaker, currentText.trim());
                     }
-                    // Start new message
-                    currentSpeaker = match[1].toLowerCase();
+                    // Start new message - keep original speaker label (e.g., "Speaker 0")
+                    currentSpeaker = match[1];
                     currentText = match[2];
                 } else if (currentSpeaker && trimmedLine) {
                     // Continue current message (multi-line)
@@ -197,12 +198,29 @@ REMEMBER:
                         continue;
                     }
                     
+                    // Extract the most recent speaker from the conversation
+                    // Look for the last speaker label (e.g., "Speaker 0:", "Speaker 1:", "User:")
+                    const lines = data.text.split('\n').reverse(); // Start from most recent
+                    let lastSpeaker = 'user'; // Default fallback
+                    for (const line of lines) {
+                        const speakerMatch = line.match(/^(Speaker\s+\d+|User|AI):/i);
+                        if (speakerMatch && speakerMatch[1].toLowerCase() !== 'ai') {
+                            lastSpeaker = speakerMatch[1];
+                            break;
+                        }
+                    }
+                    
+                    // Get speaker info (tries to detect name from conversation)
+                    const speakerInfo = graphService.getSpeakerInfo(lastSpeaker, data.text);
+                    
                     const nodeId = graphService.addNode({
                         //id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         label: node.label,
                         category: node.category || 'service',
                         metadata: {
-                            conversationContext: data.text // Store the full conversation for AI summary
+                            conversationContext: data.text, // Store the full conversation for AI summary
+                            speakerName: speakerInfo.name,
+                            speakerInitials: speakerInfo.initials
                         }
                     });
                     addedNodes.push({ id: nodeId, label: node.label });

@@ -8,6 +8,10 @@ export class GraphService {
         text: string;
         timestamp: string;
     }> = [];
+    
+    // Speaker tracking
+    private speakerMap: Map<string, { name: string; initials: string; count: number }> = new Map();
+    private speakerCounter: number = 0;
 
     // Tree layout configuration
     private readonly TREE_VERTICAL_SPACING = 200; // Vertical space between levels
@@ -21,6 +25,45 @@ export class GraphService {
             nodes: [],
             edges: []
         };
+    }
+    
+    /**
+     * Get or create speaker info from conversation context
+     * Tries to detect names from conversation, otherwise assigns User 1, User 2, etc.
+     */
+    getSpeakerInfo(speaker: string, conversationContext?: string): { name: string; initials: string } {
+        // Check if we already have this speaker
+        if (this.speakerMap.has(speaker)) {
+            return this.speakerMap.get(speaker)!;
+        }
+        
+        // Try to detect name from conversation context
+        let detectedName: string | null = null;
+        if (conversationContext) {
+            // Look for patterns like "I'm [Name]", "My name is [Name]", "This is [Name]"
+            const namePatterns = [
+                /(?:i'm|i am|my name is|this is|call me)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)/i,
+                /^([A-Z][a-z]+):\s/m  // Speaker format like "John: hello"
+            ];
+            
+            for (const pattern of namePatterns) {
+                const match = conversationContext.match(pattern);
+                if (match && match[1]) {
+                    detectedName = match[1].trim();
+                    break;
+                }
+            }
+        }
+        
+        // If no name detected, assign User 1, User 2, etc.
+        const name = detectedName || `User ${++this.speakerCounter}`;
+        const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
+        
+        const speakerInfo = { name, initials, count: 1 };
+        this.speakerMap.set(speaker, speakerInfo);
+        
+        console.log(`👤 Registered speaker "${speaker}" as "${name}" (${initials})`);
+        return speakerInfo;
     }
 
     getGraph(): Graph {

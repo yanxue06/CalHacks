@@ -78,17 +78,20 @@ export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
       {/* Speaker banner */}
       <div className="-mx-4 -mt-3 mb-2 px-4 py-2 rounded-t-lg bg-accent/40 border-b border-border flex items-center gap-2">
         <Avatar className="h-6 w-6">
-          {/* Optional image placeholder; fallback shows initials */}
-          <AvatarImage src="" alt="Speaker" />
-          <AvatarFallback className="text-[10px]">AC</AvatarFallback>
+          <AvatarImage src={data.speakerAvatar || ""} alt={data.speakerName || "Speaker"} />
+          <AvatarFallback className="text-[10px]">
+            {data.speakerInitials || (data.speakerName ? data.speakerName.substring(0, 2).toUpperCase() : 'U')}
+          </AvatarFallback>
         </Avatar>
-        <div className="text-xs font-medium tracking-wide text-foreground/80">Alex Chen</div>
+        <div className="text-xs font-medium tracking-wide text-foreground/80">
+          {data.speakerName || 'User'}
+        </div>
       </div>
       
       <div className="flex-1 min-w-0">
-        {/* Summary only */}
-        <div className="text-sm text-muted-foreground mt-1.5 leading-relaxed" title={data.summary || 'Talked about the topic and next steps.'}>
-          {data.summary || 'Talked about building the Knowledge Graph service and next steps.'}
+        {/* Node label/summary */}
+        <div className="text-sm text-muted-foreground mt-1.5 leading-relaxed" title={data.label || 'Untitled'}>
+          {data.label || 'Untitled Node'}
         </div>
         {isDraft && (
           <div className="text-xs font-mono text-yellow-500/80 mt-1.5">DRAFT</div>

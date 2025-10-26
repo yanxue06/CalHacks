@@ -6,8 +6,8 @@ export class VapiService {
   private backendUrl: string;
   private isActive: boolean = false;
   private isDevelopment: boolean = false; // Set to false to use real Vapi
-  private onTranscriptCallback: ((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => void) | null = null;
-  private conversationHistory: Array<{ role: 'user' | 'assistant', text: string }> = [];
+  private onTranscriptCallback: ((conversationHistory: Array<{ role: 'user' | 'assistant', text: string, speaker?: string }>) => void) | null = null;
+  private conversationHistory: Array<{ role: 'user' | 'assistant', text: string, speaker?: string }> = [];
   // All words that sound like "helios" - if any of these appear in user speech, respond
   private triggerPhrases: string[] = [
     'helios',
@@ -30,13 +30,19 @@ export class VapiService {
     }
   }
 
-  setTranscriptCallback(callback: (conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => void) {
+  setTranscriptCallback(callback: (conversationHistory: Array<{ role: 'user' | 'assistant', text: string, speaker?: string }>) => void) {
     this.onTranscriptCallback = callback;
   }
 
   getConversationHistory(): string {
     return this.conversationHistory
-      .map(msg => `${msg.role === 'user' ? 'User' : 'AI'}: ${msg.text}`)
+      .map(msg => {
+        // Include speaker label if available (e.g., "Speaker 0", "Speaker 1")
+        const label = msg.speaker 
+          ? `${msg.speaker}` 
+          : (msg.role === 'user' ? 'User' : 'AI');
+        return `${label}: ${msg.text}`;
+      })
       .join('\n');
   }
 
@@ -142,19 +148,24 @@ export class VapiService {
       
       // Handle different message types
       if (message.type === 'transcript') {
-        console.log('📝 Transcript:', message.transcript);
+        // Extract speaker information from Vapi's diarization
+        const speaker = message.speaker || 'unknown';
+        const speakerLabel = message.speakerLabel || speaker; // e.g., "Speaker 0", "Speaker 1"
+        
+        console.log(`📝 Transcript from ${speakerLabel}:`, message.transcript);
         
         // Store final transcripts in conversation history
         if (message.transcriptType === 'final') {
           
           // Check if user said a trigger phrase
           if (message.role === 'user') {
-            // Always add user messages
+            // Always add user messages with speaker info
             this.conversationHistory.push({
               role: message.role,
-              text: message.transcript
+              text: message.transcript,
+              speaker: speakerLabel // Track which speaker said this
             });
-            console.log(`💬 Added to conversation: ${message.role} - ${message.transcript}`);
+            console.log(`💬 Added to conversation: ${speakerLabel} (${message.role}) - ${message.transcript}`);
             
             // Check for trigger phrase
             if (this.containsTriggerPhrase(message.transcript)) {
@@ -162,8 +173,8 @@ export class VapiService {
               this.generateAndSpeakResponse(message.transcript);
             }
             
-            // Trigger processing for graph generation
-            this.processTranscript(message.transcript);
+            // Trigger processing for graph generation with speaker info
+            this.processTranscript(message.transcript, speakerLabel);
           } else if (message.role === 'assistant') {
             // Ignore automatic assistant responses from Vapi
             // Only our manually generated responses (via generateAndSpeakResponse) should be added
@@ -232,7 +243,8 @@ export class VapiService {
         name: 'Helios',
         transcriber: {
           provider: 'deepgram' as const,
-          model: 'nova-2'
+          model: 'nova-2',
+          keywords: ['Helios:10'] // Boost recognition of "Helios"
         },
         model: {
           provider: 'openai' as const,
@@ -312,9 +324,9 @@ Unless the word "HELIOS" is spoken, output NOTHING. Stay completely silent. If y
     return this.isActive;
   }
 
-  private async processTranscript(transcript: string) {
+  private async processTranscript(transcript: string, speaker?: string) {
     try {
-      console.log('🔄 Processing transcript:', transcript);
+      console.log(`🔄 Processing transcript from ${speaker || 'unknown'}:`, transcript);
       
       // Only process substantial transcripts (at least 20 characters, multiple words)
       const wordCount = transcript.trim().split(/\s+/).length;

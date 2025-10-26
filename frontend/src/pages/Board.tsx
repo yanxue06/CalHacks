@@ -175,7 +175,10 @@ const Board = () => {
             label: node.data.label,
             nodeType: node.type,
             sourceRefs: node.data.sourceRefs,
-            confidence: node.data.confidence
+            confidence: node.data.confidence,
+            speakerName: node.data.metadata?.speakerName,
+            speakerInitials: node.data.metadata?.speakerInitials,
+            speakerAvatar: node.data.metadata?.speakerAvatar
           },
         };
         

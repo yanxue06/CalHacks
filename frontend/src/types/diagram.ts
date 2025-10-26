@@ -16,6 +16,13 @@ export interface DiagramNode {
     sourceRefs: SourceRef[];
     confidence?: number;
     color?: string;
+    metadata?: {
+      conversationContext?: string;
+      speakerName?: string;
+      speakerInitials?: string;
+      speakerAvatar?: string;
+      [key: string]: any;
+    };
   };
 }
 
