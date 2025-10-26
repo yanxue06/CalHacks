@@ -9,6 +9,8 @@ interface DetailsSidebarProps {
   selectedEdge: DiagramEdge | null;
   decisions: Decision[];
   actionItems: ActionItem[];
+  nodeSummary: string | null;
+  summaryLoading: boolean;
 }
 
 const formatTimestamp = (timestamp: number) => {
@@ -26,7 +28,9 @@ export const DetailsSidebar = ({
   selectedNode, 
   selectedEdge, 
   decisions, 
-  actionItems 
+  actionItems,
+  nodeSummary,
+  summaryLoading
 }: DetailsSidebarProps) => {
   const hasSelection = selectedNode || selectedEdge;
   const sourceRefs = (selectedNode?.data.sourceRefs || selectedEdge?.data.sourceRefs || []);
@@ -40,6 +44,12 @@ export const DetailsSidebar = ({
             className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
           >
             Details
+          </TabsTrigger>
+          <TabsTrigger 
+            value="summary"
+            className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary"
+          >
+            AI Summary
           </TabsTrigger>
           <TabsTrigger 
             value="next-steps"
@@ -97,6 +107,37 @@ export const DetailsSidebar = ({
                   </div>
                 </div>
               </>
+            )}
+          </TabsContent>
+
+          <TabsContent value="summary" className="m-0 p-4 space-y-4">
+            {!selectedNode ? (
+              <div className="text-center py-12 text-muted-foreground">
+                <MessageSquareQuote className="w-12 h-12 mx-auto mb-3 opacity-40" />
+                <p className="text-sm">Click a node to generate an AI summary</p>
+                <p className="text-xs mt-2 opacity-60">Start a conversation first to create nodes</p>
+              </div>
+            ) : summaryLoading ? (
+              <div className="text-center py-8">
+                <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2"></div>
+                <p className="text-sm text-muted-foreground">Generating AI summary...</p>
+              </div>
+            ) : nodeSummary ? (
+              <div className="space-y-3">
+                <div>
+                  <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                    <MessageSquareQuote className="w-4 h-4" />
+                    AI Summary for "{selectedNode.data.label}"
+                  </h4>
+                  <Card className="p-4">
+                    <p className="text-sm leading-relaxed text-foreground">{nodeSummary}</p>
+                  </Card>
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-8 text-muted-foreground">
+                <p className="text-sm">Failed to generate summary. Please try again.</p>
+              </div>
             )}
           </TabsContent>
 

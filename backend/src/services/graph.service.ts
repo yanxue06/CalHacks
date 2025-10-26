@@ -113,6 +113,7 @@ export class GraphService {
 
     /**
      * Add a transcript entry with speaker information
+     * Transcripts are kept for 5 minutes to support AI summary generation
      */
     addTranscript(speaker: string, text: string): void {
         const transcript = {
@@ -122,10 +123,10 @@ export class GraphService {
         };
         this.transcriptHistory.push(transcript);
         
-        // Keep only last 30 seconds of transcripts
-        const thirtySecondsAgo = Date.now() - 30000;
+        // Keep only last 5 minutes of transcripts (increased for AI summary feature)
+        const fiveMinutesAgo = Date.now() - 300000; // 5 minutes
         this.transcriptHistory = this.transcriptHistory.filter(
-            t => new Date(t.timestamp).getTime() > thirtySecondsAgo
+            t => new Date(t.timestamp).getTime() > fiveMinutesAgo
         );
     }
 
@@ -169,12 +170,13 @@ export class GraphService {
         const padding = 40; // Extra space between nodes
         const gridSize = 100; // Grid increment size
         
-        // Try positions in a spiral pattern
+        // Try positions in a tree-like pattern (wider horizontal spread, less vertical)
         for (let radius = 0; radius < 20; radius++) {
             for (let theta = 0; theta < 360; theta += 15) {
                 const radians = (theta * Math.PI) / 180;
-                const x = 500 + Math.cos(radians) * radius * gridSize;
-                const y = 300 + Math.sin(radians) * radius * gridSize;
+                // Tree-like positioning: spread horizontally more than vertically
+                const x = 500 + Math.cos(radians) * radius * gridSize * 1.5;
+                const y = 600 - Math.sin(radians) * radius * gridSize * 0.5;
                 
                 const wouldOverlap = this.graph.nodes.some(node => {
                     const nodeSize = node.size || { width: 120, height: 80 };
