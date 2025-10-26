@@ -106,16 +106,9 @@ CRITICAL RULES:
 - Anything about the conversation process itself
 
 ✅ ALWAYS EXTRACT (Actual content):
-- The actual topic/problem (e.g., "Understanding addition with numbers")
-- Specific solutions (e.g., "Use 3 apples + 2 apples example")
-- Implementation details (e.g., "Visualize combining physical objects")
-
-EXAMPLE:
-❌ BAD: "User seeks explanation of addition" (meta-talk)
-✅ GOOD: "Addition combines quantities to find total" (actual content)
-
-❌ BAD: "AI provides assistance with math" (meta-talk)
-✅ GOOD: "Use apple example: 3 + 2 = 5 total apples" (actual content)
+- The actual topic/problem 
+- Specific solutions 
+- Implementation details
 
 HIERARCHY STRUCTURE:
 Main Concept (PARENT)
@@ -347,6 +340,9 @@ BE CONSERVATIVE: Only remove nodes that are clearly duplicates or meta-conversat
                 'meta-llama/llama-3.2-3b-instruct:free'
             ];
             
+            console.log('🤖 Trying models:', freeModels);
+            console.log('🤖 Refinement prompt:', refinementPrompt);
+            
             for (const model of freeModels) {
                 try {
                     response = await openRouterService.chat(refinementPrompt, model);
@@ -416,6 +412,459 @@ BE CONSERVATIVE: Only remove nodes that are clearly duplicates or meta-conversat
         } catch (error) {
             console.error('❌ Error refining graph:', error);
             socket.emit('error', { message: 'Failed to refine graph' });
+        }
+    });
+
+    socket.on('finalize-graph', async (data: { conversationContext: string }) => {
+        try {
+            console.log('═══════════════════════════════════════════════════════════');
+            console.log('🔗 FINAL GRAPH FINALIZATION STARTED');
+            console.log('═══════════════════════════════════════════════════════════');
+
+            const currentGraph = graphService.getGraph();
+
+            if (currentGraph.nodes.length === 0) {
+                console.log('⏭️ No nodes to finalize - graph is empty');
+                socket.emit('graph-finalized', { success: true, message: 'No nodes to finalize' });
+                return;
+            }
+
+            console.log(`📊 Current graph state:`);
+            console.log(`   - Total nodes: ${currentGraph.nodes.length}`);
+            console.log(`   - Total edges: ${currentGraph.edges.length}`);
+
+            // Log all nodes with their current connections
+            console.log('\n📍 Current nodes:');
+            currentGraph.nodes.forEach((node, idx) => {
+                const incomingEdges = currentGraph.edges.filter(e => e.target === node.id);
+                const outgoingEdges = currentGraph.edges.filter(e => e.source === node.id);
+                const totalConnections = incomingEdges.length + outgoingEdges.length;
+
+                console.log(`   ${idx + 1}. [${node.id}] "${node.data.label}"`);
+                console.log(`      Category: ${node.data.category}`);
+                console.log(`      Connections: ${totalConnections} (${incomingEdges.length} in, ${outgoingEdges.length} out)`);
+
+                if (totalConnections === 0) {
+                    console.log(`      ⚠️  ISOLATED NODE - NO CONNECTIONS`);
+                }
+            });
+
+            console.log('\n🔗 Current edges:');
+            currentGraph.edges.forEach((edge, idx) => {
+                const sourceNode = currentGraph.nodes.find(n => n.id === edge.source);
+                const targetNode = currentGraph.nodes.find(n => n.id === edge.target);
+                console.log(`   ${idx + 1}. "${sourceNode?.data.label}" --[${edge.relationship}]--> "${targetNode?.data.label}"`);
+            });
+
+            // Create comprehensive prompt for AI
+            const nodesList = currentGraph.nodes.map(n => ({
+                id: n.id,
+                label: n.data.label,
+                category: n.data.category
+            }));
+
+            const edgesList = currentGraph.edges.map(e => ({
+                source: e.source,
+                target: e.target,
+                relationship: e.relationship
+            }));
+
+            console.log('\n🤖 Preparing AI finalization prompt...');
+            console.log(`   - Conversation length: ${data.conversationContext.length} chars`);
+
+            const finalizationPrompt = `You are finalizing a knowledge graph after a conversation has ended.
+
+FULL CONVERSATION CONTEXT:
+${data.conversationContext}
+
+CURRENT GRAPH STATE:
+Nodes (${nodesList.length} total):
+${JSON.stringify(nodesList, null, 2)}
+
+Edges (${edgesList.length} total):
+${JSON.stringify(edgesList, null, 2)}
+
+YOUR TASK:
+1. Analyze the ENTIRE conversation context and ALL existing nodes
+2. Connect EVERY node to at least ONE other node (no isolated nodes allowed!)
+3. Create meaningful, logical connections based on the conversation flow
+4. Use appropriate relationship labels that describe WHY nodes are connected
+
+🚨 CRITICAL REQUIREMENTS:
+✓ You MUST use the EXACT "id" values from the nodes list above (the UUID strings like "a28357e2-a5f9-455c-bfc0-ca73c00e4e1e")
+✓ DO NOT make up new IDs or use simplified names like "basic-addition" or "practice"
+✓ COPY the exact UUID from the nodes list for both source and target
+✓ EVERY single node MUST have AT LEAST one connection (incoming or outgoing)
+✓ Connections should reflect actual conversation flow and logical relationships
+✓ Use descriptive relationship labels (e.g., "leads to", "enables", "requires", "results in", "part of", "supports")
+✓ Create hierarchical parent→child relationships where appropriate
+✓ Connect related concepts even if they weren't explicitly linked in earlier processing
+
+EXAMPLE - If nodes list contains:
+[
+  {"id": "abc-123-def", "label": "Addition", "category": "concept"},
+  {"id": "xyz-789-ghi", "label": "Practice", "category": "method"}
+]
+
+Then your edge MUST use these EXACT IDs:
+{
+  "source": "abc-123-def",
+  "target": "xyz-789-ghi",
+  "relationship": "requires"
+}
+
+RELATIONSHIP TYPES TO USE:
+- "leads to" - causal or sequential relationship
+- "enables" - one thing makes another possible
+- "requires" - dependency relationship
+- "part of" - component/whole relationship
+- "supports" - reinforcing relationship
+- "contradicts" - opposing ideas
+- "elaborates" - provides detail about
+- "exemplifies" - specific example of general concept
+- "implements" - concrete realization of abstract idea
+
+Return ONLY valid JSON (no markdown, no code blocks, no extra text):
+{
+  "edgesToAdd": [
+    {
+      "source": "EXACT-UUID-FROM-NODES-LIST",
+      "target": "EXACT-UUID-FROM-NODES-LIST",
+      "relationship": "descriptive relationship label",
+      "reasoning": "Brief explanation of why this connection makes sense"
+    }
+  ],
+  "summary": "Brief summary of the finalization (what connections were created and why)"
+}
+
+REMEMBER:
+- USE EXACT UUIDs FROM THE NODES LIST - DO NOT INVENT NEW IDS
+- Focus on creating NEW edges (don't duplicate existing ones)
+- EVERY node must end up with at least one connection
+- Make connections that capture the actual meaning and flow of the conversation
+- Be thoughtful about relationship directions (source → target should make semantic sense)`;
+
+            console.log('\n🤖 Sending finalization request to AI...');
+
+            // Try multiple free models with exponential backoff
+            let response;
+            const freeModels = [
+                'google/gemini-2.0-flash-exp:free',
+                'meta-llama/llama-3.2-3b-instruct:free',
+                'meta-llama/llama-3.2-1b-instruct:free',
+                'google/gemma-2-9b-it:free',
+                'mistralai/mistral-7b-instruct:free',
+                'nousresearch/hermes-3-llama-3.1-405b:free'
+            ];
+
+            let aiSucceeded = false;
+
+            for (let i = 0; i < freeModels.length; i++) {
+                const model = freeModels[i];
+                try {
+                    console.log(`   Trying model ${i + 1}/${freeModels.length}: ${model}`);
+
+                    // Exponential backoff: wait longer between each attempt
+                    if (i > 0) {
+                        const waitTime = Math.min(1000 * Math.pow(2, i - 1), 10000); // Max 10s
+                        console.log(`   ⏳ Waiting ${waitTime}ms before trying next model...`);
+                        await new Promise(resolve => setTimeout(resolve, waitTime));
+                    }
+
+                    response = await openRouterService.chat(finalizationPrompt, model);
+                    console.log(`   ✅ Model ${model} responded successfully`);
+                    aiSucceeded = true;
+                    break;
+                } catch (error) {
+                    const errorMsg = error instanceof Error ? error.message : String(error);
+                    console.warn(`   ⚠️  Model ${model} failed: ${errorMsg}`);
+
+                    // If it's a rate limit, wait a bit longer
+                    if (errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+                        console.log(`   ⏸️  Rate limited - will try next model after delay`);
+                    }
+
+                    if (i === freeModels.length - 1) {
+                        console.error('   ❌ All AI models exhausted or rate limited');
+                    }
+                }
+            }
+
+            // Fallback: If all AI models fail, use simple rule-based connection
+            if (!aiSucceeded || !response) {
+                console.log('\n🔧 AI UNAVAILABLE - Using rule-based fallback to connect isolated nodes...');
+
+                const isolatedNodes = currentGraph.nodes.filter(node => {
+                    const connections = currentGraph.edges.filter(e =>
+                        e.source === node.id || e.target === node.id
+                    ).length;
+                    return connections === 0;
+                });
+
+                console.log(`   Found ${isolatedNodes.length} isolated nodes`);
+
+                let fallbackEdgesAdded = 0;
+
+                // Simple strategy: Connect each isolated node to the most connected node
+                if (isolatedNodes.length > 0) {
+                    // Find the most connected node
+                    let mostConnectedNode = currentGraph.nodes[0];
+                    let maxConnections = 0;
+
+                    currentGraph.nodes.forEach(node => {
+                        const connections = currentGraph.edges.filter(e =>
+                            e.source === node.id || e.target === node.id
+                        ).length;
+                        if (connections > maxConnections) {
+                            maxConnections = connections;
+                            mostConnectedNode = node;
+                        }
+                    });
+
+                    console.log(`   Connecting isolated nodes to hub: "${mostConnectedNode.data.label}"`);
+
+                    for (const isolatedNode of isolatedNodes) {
+                        try {
+                            graphService.addEdge({
+                                source: mostConnectedNode.id,
+                                target: isolatedNode.id,
+                                relationship: 'relates to'
+                            });
+                            console.log(`   ✅ Connected: "${mostConnectedNode.data.label}" --> "${isolatedNode.data.label}"`);
+                            fallbackEdgesAdded++;
+                        } catch (error) {
+                            console.error(`   ❌ Failed to connect ${isolatedNode.id}:`, error);
+                        }
+                    }
+                }
+
+                io.emit('graph:update', graphService.getGraph());
+
+                socket.emit('graph-finalized', {
+                    success: true,
+                    edgesAdded: fallbackEdgesAdded,
+                    isolatedNodesRemaining: 0,
+                    usedFallback: true,
+                    summary: `Used rule-based fallback due to AI rate limits. Connected ${fallbackEdgesAdded} isolated nodes.`
+                });
+
+                console.log('✅ Fallback finalization complete');
+                console.log('═══════════════════════════════════════════════════════════\n');
+                return;
+            }
+
+            console.log('\n📥 AI Response received:');
+            console.log(response);
+
+            // Extract JSON more carefully - find first { and last }
+            let jsonStr = '';
+            const firstBrace = response.indexOf('{');
+            const lastBrace = response.lastIndexOf('}');
+
+            if (firstBrace === -1 || lastBrace === -1 || firstBrace >= lastBrace) {
+                console.error('❌ No valid JSON structure found in AI response');
+                console.error('Raw response:', response);
+                socket.emit('error', { message: 'Failed to parse AI finalization response' });
+                return;
+            }
+
+            jsonStr = response.substring(firstBrace, lastBrace + 1);
+            console.log('\n📦 Extracted JSON string:');
+            console.log(jsonStr);
+
+            let finalization;
+            try {
+                finalization = JSON.parse(jsonStr);
+            } catch (parseError) {
+                console.error('❌ JSON parse error:', parseError);
+                console.error('Attempted to parse:', jsonStr);
+                socket.emit('error', { message: 'Failed to parse AI finalization response - invalid JSON' });
+                return;
+            }
+            console.log('\n✅ Parsed AI finalization:');
+            console.log(JSON.stringify(finalization, null, 2));
+
+            let edgesAdded = 0;
+            const addedEdgeDetails: Array<{source: string, target: string, relationship: string}> = [];
+
+            // Add new edges
+            if (finalization.edgesToAdd && Array.isArray(finalization.edgesToAdd)) {
+                console.log(`\n➕ Adding ${finalization.edgesToAdd.length} new edges...`);
+
+                for (const edge of finalization.edgesToAdd) {
+                    try {
+                        // Validate that source and target nodes exist
+                        const sourceNode = currentGraph.nodes.find(n => n.id === edge.source);
+                        const targetNode = currentGraph.nodes.find(n => n.id === edge.target);
+
+                        if (!sourceNode) {
+                            console.warn(`   ⚠️  Skipping edge: source node ID "${edge.source}" not found`);
+                            console.warn(`      AI tried to use: "${edge.source}"`);
+                            console.warn(`      Valid node IDs are:`);
+                            currentGraph.nodes.forEach(n => {
+                                console.warn(`        - ${n.id} ("${n.data.label}")`);
+                            });
+                            continue;
+                        }
+
+                        if (!targetNode) {
+                            console.warn(`   ⚠️  Skipping edge: target node ID "${edge.target}" not found`);
+                            console.warn(`      AI tried to use: "${edge.target}"`);
+                            console.warn(`      Valid node IDs are:`);
+                            currentGraph.nodes.forEach(n => {
+                                console.warn(`        - ${n.id} ("${n.data.label}")`);
+                            });
+                            continue;
+                        }
+
+                        // Check if edge already exists
+                        const edgeExists = currentGraph.edges.some(
+                            e => e.source === edge.source && e.target === edge.target
+                        );
+
+                        if (edgeExists) {
+                            console.log(`   ⏭️  Skipping duplicate edge: ${edge.source} -> ${edge.target}`);
+                            continue;
+                        }
+
+                        // sourceNode and targetNode already found above during validation
+
+                        const newEdge = graphService.addEdge({
+                            source: edge.source,
+                            target: edge.target,
+                            relationship: edge.relationship || 'relates to'
+                        });
+
+                        edgesAdded++;
+                        addedEdgeDetails.push({
+                            source: edge.source,
+                            target: edge.target,
+                            relationship: edge.relationship || 'relates to'
+                        });
+
+                        console.log(`   ✅ Added: "${sourceNode?.data.label}" --[${edge.relationship}]--> "${targetNode?.data.label}"`);
+                        if (edge.reasoning) {
+                            console.log(`      Reasoning: ${edge.reasoning}`);
+                        }
+                    } catch (error) {
+                        console.error(`   ❌ Error adding edge:`, error);
+                    }
+                }
+            }
+
+            // Validate that all nodes are now connected
+            console.log('\n🔍 Validating node connections after finalization...');
+            const finalGraph = graphService.getGraph();
+            const isolatedNodes: Array<{id: string, label: string}> = [];
+
+            finalGraph.nodes.forEach(node => {
+                const incomingEdges = finalGraph.edges.filter(e => e.target === node.id);
+                const outgoingEdges = finalGraph.edges.filter(e => e.source === node.id);
+                const totalConnections = incomingEdges.length + outgoingEdges.length;
+
+                if (totalConnections === 0) {
+                    isolatedNodes.push({ id: node.id, label: node.data.label });
+                    console.log(`   ⚠️  STILL ISOLATED: [${node.id}] "${node.data.label}"`);
+                } else {
+                    console.log(`   ✅ Connected: [${node.id}] "${node.data.label}" (${totalConnections} connections)`);
+                }
+            });
+
+            // If AI failed to connect isolated nodes, use fallback
+            if (isolatedNodes.length > 0) {
+                console.log('\n🔧 AI created invalid node IDs - Using rule-based fallback for remaining isolated nodes...');
+                console.log(`   ${isolatedNodes.length} nodes still need connections`);
+
+                // Find the most connected node (hub)
+                let mostConnectedNode = finalGraph.nodes[0];
+                let maxConnections = 0;
+
+                finalGraph.nodes.forEach(node => {
+                    const connections = finalGraph.edges.filter(e =>
+                        e.source === node.id || e.target === node.id
+                    ).length;
+                    if (connections > maxConnections) {
+                        maxConnections = connections;
+                        mostConnectedNode = node;
+                    }
+                });
+
+                console.log(`   Connecting to hub node: "${mostConnectedNode.data.label}" (${maxConnections} connections)`);
+
+                let fallbackEdgesAdded = 0;
+                for (const isolatedNode of isolatedNodes) {
+                    try {
+                        // Check if this edge would be a duplicate
+                        const wouldBeDuplicate = finalGraph.edges.some(
+                            e => (e.source === mostConnectedNode.id && e.target === isolatedNode.id) ||
+                                 (e.source === isolatedNode.id && e.target === mostConnectedNode.id)
+                        );
+
+                        if (!wouldBeDuplicate) {
+                            graphService.addEdge({
+                                source: mostConnectedNode.id,
+                                target: isolatedNode.id,
+                                relationship: 'relates to'
+                            });
+                            console.log(`   ✅ Connected: "${mostConnectedNode.data.label}" --> "${isolatedNode.label}"`);
+                            fallbackEdgesAdded++;
+                            edgesAdded++;
+                        }
+                    } catch (error) {
+                        console.error(`   ❌ Failed to connect "${isolatedNode.label}":`, error);
+                    }
+                }
+
+                console.log(`   Fallback added ${fallbackEdgesAdded} edges`);
+
+                // Re-validate after fallback
+                isolatedNodes.length = 0; // Clear the array
+                finalGraph.nodes.forEach(node => {
+                    const connections = graphService.getGraph().edges.filter(e =>
+                        e.source === node.id || e.target === node.id
+                    ).length;
+                    if (connections === 0) {
+                        isolatedNodes.push({ id: node.id, label: node.data.label });
+                    }
+                });
+            }
+
+            // Broadcast update to all clients
+            io.emit('graph:update', graphService.getGraph());
+
+            console.log('\n═══════════════════════════════════════════════════════════');
+            console.log('✅ FINAL GRAPH FINALIZATION COMPLETE');
+            console.log(`   - Edges added: ${edgesAdded}`);
+            console.log(`   - Total nodes: ${graphService.getGraph().nodes.length}`);
+            console.log(`   - Total edges: ${graphService.getGraph().edges.length}`);
+            console.log(`   - Isolated nodes remaining: ${isolatedNodes.length}`);
+            if (isolatedNodes.length > 0) {
+                console.log(`   ⚠️  WARNING: Some nodes are still isolated!`);
+                isolatedNodes.forEach(node => {
+                    console.log(`      - "${node.label}"`);
+                });
+            }
+            if (finalization.summary) {
+                console.log(`\n📝 AI Summary: ${finalization.summary}`);
+            }
+            console.log('═══════════════════════════════════════════════════════════\n');
+
+            socket.emit('graph-finalized', {
+                success: true,
+                edgesAdded,
+                isolatedNodesRemaining: isolatedNodes.length,
+                isolatedNodes,
+                summary: finalization.summary
+            });
+
+        } catch (error) {
+            console.error('═══════════════════════════════════════════════════════════');
+            console.error('❌ ERROR IN FINAL GRAPH FINALIZATION');
+            console.error('═══════════════════════════════════════════════════════════');
+            console.error('Error details:', error);
+            console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
+            console.error('═══════════════════════════════════════════════════════════\n');
+            socket.emit('error', { message: 'Failed to finalize graph' });
         }
     });
 });

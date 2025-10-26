@@ -211,6 +211,15 @@ export class WebSocketService {
     }
   }
 
+  finalizeGraph(conversationContext: string) {
+    if (this.socket) {
+      console.log('🔗 Requesting final graph finalization via WebSocket');
+      this.socket.emit('finalize-graph', { conversationContext });
+    } else {
+      console.error('❌ WebSocket not connected');
+    }
+  }
+
   isConnected(): boolean {
     return this.socket?.connected || false;
   }
