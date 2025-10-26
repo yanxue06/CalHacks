@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { VapiConfig, VapiAssistant, VapiFunction, VapiToolCall } from '../types';
-import { prisma } from './db.service';
 
 export class VapiService {
     private apiKey: string;
@@ -11,24 +10,6 @@ export class VapiService {
         if (!this.apiKey) {
             console.warn('⚠️  VAPI_API_KEY not found in environment variables');
         }
-    }
-
-    // Persist a transcript message tied to a conversation (by external call id)
-    async saveTranscript(params: { vapiCallId?: string; conversationId?: string; speaker: string; text: string; startMs?: number; endMs?: number; isFinal?: boolean; }) {
-        const { vapiCallId, conversationId, speaker, text, startMs, endMs, isFinal = true } = params;
-        let convoId = conversationId;
-        if (!convoId && vapiCallId) {
-            const convo = await prisma.conversation.upsert({
-                where: { vapiCallId },
-                update: {},
-                create: { vapiCallId, status: 'active' }
-            });
-            convoId = convo.id;
-        }
-        if (!convoId) return;
-        await prisma.message.create({
-            data: { conversationId: convoId, speaker, text, startMs, endMs, isFinal }
-        });
     }
 
     /**

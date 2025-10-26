@@ -8,7 +8,6 @@ import { Server as SocketIOServer } from 'socket.io';
 import { OpenRouterService } from './services/openrouter.service';
 import { GraphService } from './services/graph.service';
 import { VapiService } from './services/vapi.service';
-import { conversations as conversationsRouter } from './routes/conversations';
 
 dotenv.config();
 
@@ -931,7 +930,6 @@ app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
 // Routes
-app.use('/api/conversations', conversationsRouter);
 app.get('/', (req: Request, res: Response) => {
     res.json({
         message: 'CalHacks Backend API with Gemini AI',
@@ -1169,14 +1167,17 @@ app.post('/api/vapi/webhook', (req: Request, res: Response) => {
         // Handle different Vapi events
         switch (event.type) {
             case 'transcript':
+                // Store transcript with speaker information
                 if (event.transcript) {
                     const speaker = event.speaker || 'unknown';
-                    const callId = event.callId || event.vapiCallId;
-                    // Save in-memory (existing behavior)
                     graphService.addTranscript(speaker, event.transcript);
-                    // Persist to DB if configured
-                    vapiService.saveTranscript({ vapiCallId: callId, speaker, text: event.transcript, startMs: event.startMs, endMs: event.endMs, isFinal: event.isFinal });
-                    io.emit('transcript:update', { text: event.transcript, speaker, timestamp: new Date().toISOString() });
+                    
+                    // Broadcast to clients with speaker info
+                    io.emit('transcript:update', {
+                        text: event.transcript,
+                        speaker: speaker,
+                        timestamp: new Date().toISOString()
+                    });
                 }
                 break;
             

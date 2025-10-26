@@ -1,7 +1,8 @@
 import { memo, useCallback } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 import { NodeType } from '@/types/diagram';
-import { Database, Lightbulb, CheckCircle2, Server, MoreVertical } from 'lucide-react';
+import { MoreVertical } from 'lucide-react';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -12,16 +13,15 @@ import {
 } from '@/components/ui/dropdown-menu';
 
 const nodeConfig = {
-  service: { icon: Server, color: 'hsl(var(--node-service))', label: 'Service' },
-  database: { icon: Database, color: 'hsl(var(--node-database))', label: 'Database' },
-  decision: { icon: Lightbulb, color: 'hsl(var(--node-decision))', label: 'Decision' },
-  action: { icon: CheckCircle2, color: 'hsl(var(--node-action))', label: 'Action' }
+  service: { color: 'hsl(var(--node-service))' },
+  database: { color: 'hsl(var(--node-database))' },
+  decision: { color: 'hsl(var(--node-decision))' },
+  action: { color: 'hsl(var(--node-action))' }
 };
 
 export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
   const nodeType = data.nodeType as NodeType || 'service';
   const config = nodeConfig[nodeType];
-  const Icon = config.icon;
   const isDraft = (data.confidence || 1) < 0.85;
   const { setNodes } = useReactFlow();
 
@@ -75,25 +75,24 @@ export const DiagramNode = memo(({ id, data, selected }: NodeProps) => {
       </div>
       <Handle type="target" position={Position.Top} className="!bg-primary" />
       
-      <div className="flex items-start gap-3">
-        <div 
-          className="p-2 rounded-lg shrink-0"
-          style={{ backgroundColor: `${config.color}15` }}
-        >
-          <Icon className="w-4 h-4" style={{ color: config.color }} />
+      {/* Speaker banner */}
+      <div className="-mx-4 -mt-3 mb-2 px-4 py-2 rounded-t-lg bg-accent/40 border-b border-border flex items-center gap-2">
+        <Avatar className="h-6 w-6">
+          {/* Optional image placeholder; fallback shows initials */}
+          <AvatarImage src="" alt="Speaker" />
+          <AvatarFallback className="text-[10px]">AC</AvatarFallback>
+        </Avatar>
+        <div className="text-xs font-medium tracking-wide text-foreground/80">Alex Chen</div>
+      </div>
+      
+      <div className="flex-1 min-w-0">
+        {/* Summary only */}
+        <div className="text-sm text-muted-foreground mt-1.5 leading-relaxed" title={data.summary || 'Talked about the topic and next steps.'}>
+          {data.summary || 'Talked about building the Knowledge Graph service and next steps.'}
         </div>
-        
-        <div className="flex-1 min-w-0">
-          <div className="text-xs font-mono text-gray-500 mb-1.5 uppercase tracking-wider">
-            {config.label}
-          </div>
-          <div className="font-medium text-sm text-foreground leading-snug">
-            {data.label}
-          </div>
-          {isDraft && (
-            <div className="text-xs font-mono text-yellow-500/80 mt-1.5">DRAFT</div>
-          )}
-        </div>
+        {isDraft && (
+          <div className="text-xs font-mono text-yellow-500/80 mt-1.5">DRAFT</div>
+        )}
       </div>
       
       <Handle type="source" position={Position.Bottom} className="!bg-primary" />
