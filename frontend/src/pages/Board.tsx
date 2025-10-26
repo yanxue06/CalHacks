@@ -36,6 +36,9 @@ const Board = () => {
   const [selectedEdge, setSelectedEdge] = useState<DiagramEdge | null>(null);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
+  const [nodeSummary, setNodeSummary] = useState<string | null>(null);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryCache, setSummaryCache] = useState<Map<string, string>>(new Map());
   const [reactFlowInstance, setReactFlowInstance] = useState<ReactFlowInstance | null>(null);
   
   const wsService = useRef(new WebSocketService());
@@ -49,8 +52,54 @@ const Board = () => {
   const REFINEMENT_INTERVAL = 30000; // 30 seconds between refinements (2 API calls/min max)
   const MIN_NEW_MESSAGES_FOR_REFINEMENT = 4; // Only refine if at least 4 new messages
 
+  const fetchNodeSummary = useCallback(async (nodeId: string) => {
+    // Check cache first
+    if (summaryCache.has(nodeId)) {
+      setNodeSummary(summaryCache.get(nodeId)!);
+      return;
+    }
+
+    setSummaryLoading(true);
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5001';
+      const response = await fetch(`${backendUrl}/api/node/summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId, contextWindow: 15000 })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch summary: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setNodeSummary(data.summary);
+      
+      // Cache the summary
+      setSummaryCache(prev => new Map(prev).set(nodeId, data.summary));
+    } catch (error) {
+      console.error('Failed to fetch node summary:', error);
+      
+      // Handle specific error cases
+      if (error.message.includes('400')) {
+        toast.error('No conversation context', {
+          description: 'Please start a conversation first to generate summaries'
+        });
+      } else if (error.message.includes('404')) {
+        toast.error('Node not found', {
+          description: 'The selected node is no longer available'
+        });
+      } else {
+        toast.error('Failed to generate summary', {
+          description: 'Please try again later'
+        });
+      }
+    } finally {
+      setSummaryLoading(false);
+    }
+  }, [summaryCache]);
+
   const handleTranscript = useCallback((conversationHistory: Array<{ role: 'user' | 'assistant', text: string }>) => {
-    console.log('📝 Received conversation history from Vapi:', conversationHistory);
 
     // Only process if we have substantial conversation (at least 2 exchanges: 1 user + 1 AI)
     if (conversationHistory.length < 2) {
@@ -312,7 +361,10 @@ const Board = () => {
     };
     setSelectedNode(diagramNode);
     setSelectedEdge(null);
-  }, []);
+    
+    // Fetch AI summary for the node
+    fetchNodeSummary(node.id);
+  }, [fetchNodeSummary]);
 
   const handleEdgeClick = useCallback((_event: React.MouseEvent, edge: Edge) => {
     const diagramEdge: DiagramEdge = {
@@ -329,6 +381,7 @@ const Board = () => {
   const handlePaneClick = useCallback(() => {
     setSelectedNode(null);
     setSelectedEdge(null);
+    setNodeSummary(null);
   }, []);
 
   const handleConnect = useCallback((params: Connection) => {
@@ -393,6 +446,8 @@ const Board = () => {
           selectedEdge={selectedEdge}
           decisions={decisions}
           actionItems={actionItems}
+          nodeSummary={nodeSummary}
+          summaryLoading={summaryLoading}
         />
       </div>
     </div>

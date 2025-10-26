@@ -25,6 +25,8 @@ const io = new SocketIOServer(httpServer, {
     cors: {
         origin: [
             process.env.FRONTEND_URL || 'http://localhost:3000',
+            'http://localhost:8080',
+            'http://localhost:8081',
             'http://localhost:8082',
             'https://api.vapi.ai'
         ],
@@ -51,6 +53,38 @@ io.on('connection', (socket) => {
     socket.on('process-transcript', async (data: { text: string }) => {
         try {
             console.log('📝 Received conversation via WebSocket:', data.text);
+            
+            // Store the conversation as transcripts for AI summary feature
+            // Parse the conversation text to extract individual messages
+            const lines = data.text.split('\n');
+            let currentSpeaker = '';
+            let currentText = '';
+            
+            lines.forEach(line => {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) return;
+                
+                const match = trimmedLine.match(/^(User|AI):\s*(.+)$/);
+                if (match) {
+                    // Save previous message if exists
+                    if (currentSpeaker && currentText) {
+                        graphService.addTranscript(currentSpeaker, currentText.trim());
+                    }
+                    // Start new message
+                    currentSpeaker = match[1].toLowerCase();
+                    currentText = match[2];
+                } else if (currentSpeaker && trimmedLine) {
+                    // Continue current message (multi-line)
+                    currentText += ' ' + trimmedLine;
+                }
+            });
+            
+            // Save the last message
+            if (currentSpeaker && currentText) {
+                graphService.addTranscript(currentSpeaker, currentText.trim());
+            }
+            
+            console.log(`📝 Stored transcripts. Total count: ${graphService.getRecentTranscripts(15000).length}`);
             
             const prompt = `You are building a HIERARCHICAL knowledge graph. Extract 2-4 KEY IDEAS ONLY from this conversation.
 
@@ -176,7 +210,10 @@ REMEMBER:
                     const nodeId = graphService.addNode({
                         //id: node.id || `node-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                         label: node.label,
-                        category: node.category || 'service'
+                        category: node.category || 'service',
+                        metadata: {
+                            conversationContext: data.text // Store the full conversation for AI summary
+                        }
                     });
                     addedNodes.push({ id: nodeId, label: node.label });
                 }
@@ -259,7 +296,7 @@ REMEMBER:
                 return;
             }
 
-            const refinementPrompt = `You are AGGRESSIVELY cleaning up a knowledge graph. Remove ALL redundancy and create clear hierarchy.
+            const refinementPrompt = `You are carefully cleaning up a knowledge graph. Remove ONLY clear redundancy and maintain useful nodes.
 
 CURRENT CONVERSATION CONTEXT:
 ${data.conversationContext}
@@ -268,32 +305,30 @@ CURRENT GRAPH:
 Nodes: ${JSON.stringify(currentGraph.nodes.map(n => ({ id: n.id, label: n.data.label })))}
 Edges: ${JSON.stringify(currentGraph.edges.map(e => ({ source: e.source, target: e.target, relationship: e.relationship })))}
 
-AGGRESSIVE CLEANUP RULES:
-1. REMOVE ALL semantically duplicate nodes (keep only the most specific one)
-2. REMOVE vague or generic nodes
-3. Target: 3-7 nodes MAXIMUM in final graph
-4. CREATE hierarchical edges between remaining nodes
-5. Ensure nodes form a TREE structure (parent → children)
+CONSERVATIVE CLEANUP RULES:
+1. Remove ONLY nodes that are EXACT duplicates (same exact text)
+2. Merge nodes only if they are clearly the same concept with different wording
+3. Keep nodes that provide unique value or different perspectives
+4. Preserve the most detailed and specific nodes
+5. Only remove nodes if you're 100% certain they're redundant
 
-EXAMPLES OF DUPLICATES TO REMOVE:
-- "User struggles with math" + "User has difficulty with addition" → KEEP ONLY ONE
-- "Addition is combining numbers" + "Addition process" → KEEP ONLY ONE
+EXAMPLES OF WHAT TO REMOVE (ONLY these):
+- "User struggles with math" + "User struggles with math" → REMOVE ONE (exact duplicate)
 - "AI will explain" + "AI intends to explain" → REMOVE BOTH (meta-talk)
 
-WHAT TO KEEP:
-- Most specific, detailed version of each concept
-- Nodes that form a clear parent-child hierarchy
-- Actionable, concrete ideas
+EXAMPLES OF WHAT TO KEEP:
+- "User struggles with math" + "User has difficulty with addition" → KEEP BOTH (different concepts)
+- "Addition is combining numbers" + "Addition process" → KEEP BOTH (different aspects)
 
-WHAT TO REMOVE:
-- Semantic duplicates (similar meaning)
-- Vague generalizations
-- Meta-conversation nodes
-- Nodes without clear parent/child relationships
+WHAT TO KEEP:
+- All nodes that provide unique information
+- Nodes with different perspectives on the same topic
+- Specific, detailed concepts
+- Actionable ideas
 
 Return ONLY valid JSON (no markdown):
 {
-  "nodesToRemove": ["id1", "id2", "id3"],
+  "nodesToRemove": ["id1", "id2"],
   "nodesToUpdate": [
     {"id": "existing-id", "newLabel": "More specific label", "category": "problem|solution|technology|plan|action"}
   ],
@@ -302,7 +337,7 @@ Return ONLY valid JSON (no markdown):
   ]
 }
 
-BE AGGRESSIVE: Remove 50-70% of nodes if they're redundant!`;
+BE CONSERVATIVE: Only remove nodes that are clearly duplicates or meta-conversation!`;
 
             // Try multiple free models for refinement
             let response;
@@ -390,6 +425,8 @@ app.use(helmet()); // Security headers
 app.use(cors({
     origin: [
         process.env.FRONTEND_URL || 'http://localhost:3000',
+        'http://localhost:8080',
+        'http://localhost:8081',
         'http://localhost:8082',
         'https://api.vapi.ai'
     ],
@@ -691,8 +728,24 @@ app.post('/api/node/summary', async (req: Request, res: Response) => {
         }
         
         // Get recent transcripts for context
-        const transcripts = graphService.getRecentTranscripts(contextWindow || 15000);
-        const transcriptsText = transcripts.map(t => `[${t.speaker}]: ${t.text}`).join('\n');
+        let transcripts = graphService.getRecentTranscripts(contextWindow || 15000);
+        console.log(`📝 Found ${transcripts.length} transcripts for summary generation`);
+        
+        // If no transcripts available (server restart), try to get conversation context from node metadata
+        let transcriptsText = '';
+        if (transcripts.length === 0) {
+            // Check if node has conversation context in metadata
+            if (node.data.metadata?.conversationContext) {
+                transcriptsText = node.data.metadata.conversationContext;
+                console.log(`📝 Using conversation context from node metadata: ${transcriptsText.length} characters`);
+            } else {
+                res.status(400).json({ error: 'No conversation context available. Please start a conversation first.' });
+                return;
+            }
+        } else {
+            transcriptsText = transcripts.map(t => `[${t.speaker}]: ${t.text}`).join('\n');
+            console.log(`📝 Transcript text length: ${transcriptsText.length} characters`);
+        }
         
         // Use OpenRouter to generate summary
         const summaryPrompt = `Given this conversation context from the last ${Math.floor((contextWindow || 15000) / 1000)} seconds:
@@ -703,7 +756,32 @@ Please provide a brief 2-3 sentence summary of what was discussed about: "${node
 
 Be specific and focus on the key points related to this topic.`;
 
-        const summary = await openRouterService.chat(summaryPrompt, 'google/gemini-pro');
+        // Try multiple free models in case one is rate limited
+        let summary;
+        const freeModels = [
+            'google/gemini-2.0-flash-exp:free',
+            'google/gemini-flash-1.5:free',
+            'meta-llama/llama-3.2-3b-instruct:free'
+        ];
+        
+        for (const model of freeModels) {
+            try {
+                console.log(`🤖 Trying model for summary: ${model}`);
+                summary = await openRouterService.chat(summaryPrompt, model);
+                break; // Success, exit loop
+            } catch (error) {
+                console.warn(`⚠️ Model ${model} failed for summary, trying next...`);
+                if (model === freeModels[freeModels.length - 1]) {
+                    throw error; // Last model, throw error
+                }
+            }
+        }
+        
+        if (!summary) {
+            throw new Error('Failed to generate summary with any available model');
+        }
+        
+        console.log(`✅ Generated summary for node "${node.data.label}": ${summary.substring(0, 100)}...`);
         
         res.json({ 
             summary,
@@ -711,7 +789,7 @@ Be specific and focus on the key points related to this topic.`;
             contextWindow: contextWindow || 15000
         });
     } catch (error) {
-        console.error('Error generating summary:', error);
+        console.error('❌ Error generating summary:', error);
         res.status(500).json({ error: 'Failed to generate summary' });
     }
 });
